@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+    <title>Lista de Asistencia</title>
+    <style>
+        @page { margin: 40px 50px; }
+        body { font-family: 'Helvetica', sans-serif; font-size: 10px; }
+        .header-table, .main-table { width: 100%; border-collapse: collapse; }
+        .header-table td, .main-table td, .main-table th { border: 1px solid #000; padding: 4px 6px; vertical-align: middle; }
+        .main-table th { background-color: #e0e0e0; text-align: center; font-weight: bold; }
+        .firma-cell { height: 40px; width: 150px; text-align: center; }
+        .firma-img { max-width: 120px; max-height: 35px; margin: 0 auto; display: block; }
+        .text-center { text-align: center; }
+        .font-bold { font-weight: bold; }
+        .header-title-box { border: 1px solid #000; padding: 5px; text-align: center; margin-bottom: 15px; }
+        .header-title-box .title { font-size: 14px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div class="header-title-box">
+        <div class="title">LISTA ASISTENCIA GENERAL</div>
+        <div>FO-GD-12 | 19-09-2024 | V. 04</div>
+    </div>
+
+    <table class="header-table">
+        <tbody>
+            <tr>
+                <td width="15%"><span class="font-bold">TEMA:</span></td>
+                <td colspan="5">{{ $reunion->tema }}</td>
+            </tr>
+            <tr>
+                <td><span class="font-bold">FECHA:</span></td>
+                <td width="25%">{{ \Carbon\Carbon::parse($reunion->fecha)->format('d \d\e F \d\e Y') }}</td>
+                <td width="10%"><span class="font-bold">HORA:</span></td>
+                <td width="15%">{{ \Carbon\Carbon::parse($reunion->hora_inicio)->format('h:i A') }}</td>
+                <td width="15%"><span class="font-bold">CIUDAD/MPIO:</span></td>
+                <td width="20%">{{ $reunion->ciudad_municipio }}</td>
+            </tr>
+            <tr>
+                <td><span class="font-bold">DEPENDENCIA/LUGAR:</span></td>
+                <td colspan="5">{{ $reunion->dependencia_lugar }}</td>
+            </tr>
+            <tr>
+                <td><span class="font-bold">QUIEN EXPONE:</span></td>
+                <td colspan="5">{{ $reunion->expositor }}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <br>
+
+    <table class="main-table">
+        <thead>
+            <tr>
+                <th width="5%">No</th>
+                <th>NOMBRE COMPLETO</th>
+                <th>CARGO</th>
+                <th>DEPENDENCIA</th>
+                <th>CORREO</th>
+                <th width="10%">TELÉFONO</th>
+                <th width="20%">FIRMA</th>
+            </tr>
+        </thead>
+        <tbody>
+            @forelse($reunion->asistentes as $index => $asistencia)
+            <tr>
+                <td class="text-center">{{ $index + 1 }}</td>
+                <td>{{ $asistencia->nombre_completo }}</td>
+                <td>{{ $asistencia->cargo }}</td>
+                <td>{{ $asistencia->dependencia }}</td>
+                <td>{{ $asistencia->email }}</td>
+                <td>{{ $asistencia->telefono }}</td>
+                <td class="firma-cell">
+                    @if($asistencia->firma)
+                        <img src="{{ $asistencia->firma->data_base64 }}" alt="Firma" class="firma-img">
+                    @endif
+                </td>
+            </tr>
+            @empty
+            <tr><td colspan="7" class="text-center">No hay asistentes registrados.</td></tr>
+            @endforelse
+            @for ($i = count($reunion->asistentes); $i < 15; $i++)
+            <tr>
+                <td class="text-center">{{ $i + 1 }}</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td class="firma-cell">&nbsp;</td>
+            </tr>
+            @endfor
+        </tbody>
+    </table>
+
+</body>
+</html>
