@@ -1,25 +1,12 @@
 <?php
 
 return [
-
-    /*
-    |--------------------------------------------------------------------------
-    | CORS Configuration
-    |--------------------------------------------------------------------------
-    |
-    | Here you can configure the settings for Cross-Origin Resource Sharing
-    | or "CORS". This determines which origins are allowed to access your
-    | resources.
-    |
-    | To learn more: https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS
-    |
-    */
-
-    'paths' => ['api/*'],
+    
+    'paths' => ['api/*', 'login', 'sanctum/csrf-cookie', 'reuniones/*', 'asistencia/*'],
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['https://asistenciagob.netlify.app'],
+    'allowed_origins' => ['http://localhost:4321', 'https://asistenciagob.netlify.app','*'],
 
     'allowed_origins_patterns' => [],
 
@@ -29,6 +16,5 @@ return [
 
     'max_age' => 0,
 
-    'supports_credentials' => true,
-
+    'supports_credentials' => false,
 ];

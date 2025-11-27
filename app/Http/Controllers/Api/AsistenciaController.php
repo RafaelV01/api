@@ -33,6 +33,11 @@ class AsistenciaController extends Controller
         ]);
 
         $reunion = Reunion::where('codigo', $codigo)->firstOrFail();
+
+        if ($reunion->estado === 'cerrada') {
+            return response()->json(['message' => 'La Reunión Finalizó'], 403);
+        }
+
         $user = Auth::user();
 
         // Usamos una transacción para asegurar que todo se guarde correctamente

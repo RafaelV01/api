@@ -8,7 +8,7 @@ class Reunion extends Model
 {
     use HasFactory;
     protected $table = 'reuniones';
-    protected $fillable = ['codigo', 'slug_acceso', 'tema', 'fecha', 'hora_inicio', 'hora_fin', 'dependencia_lugar', 'ciudad_municipio', 'tipo_evento', 'expositor', 'firma_creador_id', 'creador_id', 'qr_png_path', 'estado'];
+    protected $fillable = ['codigo', 'slug_acceso', 'tema', 'fecha', 'hora_inicio', 'hora_fin', 'dependencia_lugar', 'ciudad_municipio', 'tipo_evento', 'otro_evento', 'expositor', 'firma_creador_id', 'creador_id', 'qr_png_path', 'estado','firma_creador'];
 
     public function creador() { return $this->belongsTo(User::class, 'creador_id'); }
     public function asistentes() { return $this->hasMany(Asistente::class, 'reunion_id'); }

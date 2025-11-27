@@ -1,0 +1,50 @@
+<?php
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\ValidationException;
+
+class AuthController extends Controller
+{
+    public function register(Request $request)
+    {
+        $request->validate([
+            'nombre_completo' => 'required|string|max:160',
+            'cargo'           => 'required|string|max:120',
+            'dependencia'     => 'required|string|max:160',
+            'email'           => 'required|string|email|max:190|unique:usuarios',
+            'telefono'        => 'required|string|max:30',
+            'password'        => 'required|string|min:8|confirmed',
+        ]);
+
+        $user = User::create([
+            'nombre_completo' => $request->nombre_completo,
+            'cargo'           => $request->cargo,
+            'dependencia'     => $request->dependencia,
+            'email'           => $request->email,
+            'telefono'        => $request->telefono,
+            'password'        => Hash::make($request->password),
+            'rol_id'          => 3, // Asigna el rol de usuario por defecto
+        ]);
+
+        return response()->json(['message' => 'Usuario registrado exitosamente.'], 201);
+    }
+
+   public function login(Request $request)
+{
+    // Ignoramos todo lo dem¨¢s y solo devolvemos este mensaje.
+    return response()->json([
+        'mensaje_de_prueba' => 'ESTA ES LA NUEVA FUNCION DE PRUEBA',
+        'hora' => now()->toTimeString()
+    ]);
+}
+
+    public function logout(Request $request)
+    {
+        $request->user()->currentAccessToken()->delete();
+        return response()->json(['message' => 'Sesi¨®n cerrada exitosamente.']);
+    }
+}

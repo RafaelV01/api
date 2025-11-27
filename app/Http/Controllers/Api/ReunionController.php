@@ -9,8 +9,17 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Barryvdh\DomPDF\Facade\Pdf; 
 
+
+
+
+
+
 class ReunionController extends Controller
 {
+    
+    
+    
+    
     /**
      * Muestra una lista de las reuniones creadas por el usuario autenticado.
      */
@@ -30,10 +39,13 @@ class ReunionController extends Controller
             'tema' => 'required|string|max:200',
             'fecha' => 'required|date',
             'hora_inicio' => 'required|date_format:H:i',
+            'hora_fin' => 'required|date_format:H:i|after:hora_inicio',
             'dependencia_lugar' => 'required|string|max:200',
             'ciudad_municipio' => 'required|string|max:120',
             'tipo_evento' => 'required|in:capacitacion,divulgacion,otro',
+            'otro_evento' => 'nullable|string|max:100|required_if:tipo_evento,otro',
             'expositor' => 'required|string|max:160',
+            'firma_creador' => 'required|string',
         ]);
 
         $user = Auth::user();
@@ -42,12 +54,15 @@ class ReunionController extends Controller
             'tema' => $validatedData['tema'],
             'fecha' => $validatedData['fecha'],
             'hora_inicio' => $validatedData['hora_inicio'],
+            'hora_fin' => $validatedData['hora_fin'],
             'dependencia_lugar' => $validatedData['dependencia_lugar'],
             'ciudad_municipio' => $validatedData['ciudad_municipio'],
             'tipo_evento' => $validatedData['tipo_evento'],
+            'otro_evento' => $validatedData['otro_evento'] ?? null,
             'expositor' => $validatedData['expositor'],
             'codigo' => Str::upper(Str::random(8)),
             'slug_acceso' => Str::slug($validatedData['tema']) . '-' . uniqid(),
+            'firma_creador' => $validatedData['firma_creador'],
         ]);
 
         return response()->json($reunion, 201);
@@ -63,8 +78,8 @@ class ReunionController extends Controller
             return response()->json(['message' => 'No autorizado para ver esta reunión.'], 403);
         }
 
-        // Cargamos la relación con los asistentes y los datos del usuario de cada asistente
-        $reunion->load('asistentes.usuario');
+        // Cargamos la relación con los asistentes, los datos del usuario de cada asistente y el creador
+        $reunion->load(['asistentes.usuario', 'creador']);
 
         return response()->json($reunion);
     }
@@ -78,16 +93,40 @@ class ReunionController extends Controller
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
-        // Cargamos todas las relaciones necesarias para el PDF
+        // Limpiar cualquier salida previa
+        if (ob_get_contents()) {
+            ob_end_clean();
+        }
+
         $reunion->load('asistentes.firma');
 
-        // Creamos el PDF pasando la vista y los datos
         $pdf = Pdf::loadView('pdf.asistencia', ['reunion' => $reunion]);
 
-        // Ponemos el PDF en modo horizontal si es necesario
-        // $pdf->setPaper('a4', 'landscape');
+        // Devolver el PDF con encabezados explícitos
+        return response($pdf->output(), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="asistencia-' . $reunion->codigo . '.pdf"',
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+            'Pragma' => 'no-cache',
+            'Expires' => '0'
+        ]);
+    }
 
-        // Devolvemos el PDF para que el navegador lo descargue
-        return $pdf->download('asistencia-' . $reunion->codigo . '.pdf');
+    /**
+     * Finaliza una reunión, impidiendo nuevos registros.
+     */
+    public function finalizar(Reunion $reunion)
+    {
+        if (Auth::id() !== $reunion->creador_id) {
+            return response()->json(['message' => 'No autorizado'], 403);
+        }
+
+        $reunion->estado = 'cerrada';
+        $reunion->save();
+
+        // Recargar la instancia con las relaciones necesarias para el frontend
+        $reunion->load('asistentes.usuario');
+
+        return response()->json(['message' => 'Reunión finalizada correctamente.', 'reunion' => $reunion]);
     }
 }
