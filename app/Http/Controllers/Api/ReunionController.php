@@ -36,14 +36,14 @@ class ReunionController extends Controller
     public function store(Request $request)
     {
         $validatedData = $request->validate([
-            'tema' => 'required|string|max:200',
+            'tema' => 'required|string|max:255',
             'fecha' => 'required|date',
             'hora_inicio' => 'required|date_format:H:i',
             'hora_fin' => 'required|date_format:H:i|after:hora_inicio',
             'dependencia_lugar' => 'required|string|max:200',
             'ciudad_municipio' => 'required|string|max:120',
             'tipo_evento' => 'required|in:capacitacion,divulgacion,otro',
-            'otro_evento' => 'nullable|string|max:100|required_if:tipo_evento,otro',
+            'otro_evento' => 'nullable|string|max:233|required_if:tipo_evento,otro',
             'expositor' => 'required|string|max:160',
             'firma_creador' => 'required|string',
         ]);

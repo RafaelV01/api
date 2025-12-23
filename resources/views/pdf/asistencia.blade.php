@@ -116,7 +116,7 @@
         <tbody>
             <tr>
                 <td style="width: 20%; vertical-align: top; border: none;">
-                    <img src="{{ public_path('icons/gobernacion_nit.png') }}" alt="Logo Gobernación" style="width: 100px;">
+                    <img src="{{ public_path('icons/logo.png') }}" alt="Logo Gobernación" style="width: 100px;">
                 </td>
                 <td style="width: 80%; text-align: right; vertical-align: top; font-family: 'Helvetica', sans-serif;">
                     <div style="font-size: 14px; font-weight: bold;">LISTA ASISTENCIA GENERAL</div>

@@ -15,7 +15,7 @@
     // Rutas Públicas
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login'])->name('login'); // // 
-Route::get('/asistencia/info/{codigo}', [AsistenciaController::class, 'info']);
+    Route::get('/asistencia/info/{codigo}', [AsistenciaController::class, 'info']);
 
 
 
