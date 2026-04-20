@@ -38,30 +38,57 @@ class AsistenciaController extends Controller
             return response()->json(['message' => 'La Reunión Finalizó'], 403);
         }
 
-        $user = Auth::user();
+        // Intentar obtener el usuario autenticado (si existe token)
+        $user = Auth::guard('sanctum')->user();
+
+        // Si no hay usuario, verificar si la reunión permite invitados
+        if (!$user) {
+             if (!$reunion->allow_guests) {
+                 return response()->json(['message' => 'Debe iniciar sesión para registrar asistencia.'], 401);
+             }
+
+             // Validar datos de invitado
+             $request->validate([
+                 'nombre_completo' => 'required|string|max:255',
+                 'cargo' => 'required|string|max:100',
+                 'dependencia' => 'required|string|max:150',
+                 'email' => 'required|email|max:255',
+                 'telefono' => 'required|string|max:20',
+             ]);
+        }
 
         // Usamos una transacción para asegurar que todo se guarde correctamente
         return DB::transaction(function () use ($request, $reunion, $user) {
             // 1. Guardar la firma digital
             $firma = FirmaDigital::create([
                 'owner_tipo' => 'asistente',
-                'owner_id' => $user->id, // Temporal, se puede asociar al 'asistente_id' después
+                'owner_id' => $user ? $user->id : null, 
                 'formato' => 'png',
                 'data_base64' => $request->firma_base64,
                 'hash_integridad' => $request->firma_hash,
             ]);
 
             // 2. Crear el registro de asistencia
-            $asistente = $reunion->asistentes()->create([
-                'usuario_id' => $user->id,
-                'nombre_completo' => $user->nombre_completo,
-                'cargo' => $user->cargo,
-                'dependencia' => $user->dependencia,
-                'email' => $user->email,
-                'telefono' => $user->telefono,
+            $asistenteData = [
+                'usuario_id' => $user ? $user->id : null,
+                'nombre_completo' => $user ? $user->nombre_completo : $request->nombre_completo,
+                'cargo' => $user ? $user->cargo : $request->cargo,
+                'dependencia' => $user ? $user->dependencia : $request->dependencia,
+                'email' => $user ? $user->email : $request->email,
+                'telefono' => $user ? $user->telefono : $request->telefono,
                 'firma_id' => $firma->id,
-                'creado_via' => 'enlace', // O 'qr', 'codigo', etc.
-            ]);
+                'creado_via' => 'enlace', 
+            ];
+
+
+            $asistente = $reunion->asistentes()->create($asistenteData);
+
+            if (!$user) {
+                // Actualizar el owner_id de la firma con el id del asistente recién creado
+                $firma->owner_id = $asistente->id;
+                $firma->save();
+            }
+
 
             return response()->json([
                 'message' => 'Asistencia registrada exitosamente.'

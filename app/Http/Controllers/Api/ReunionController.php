@@ -46,6 +46,7 @@ class ReunionController extends Controller
             'otro_evento' => 'nullable|string|max:233|required_if:tipo_evento,otro',
             'expositor' => 'required|string|max:160',
             'firma_creador' => 'required|string',
+            'allow_guests' => 'boolean',
         ]);
 
         $user = Auth::user();
@@ -63,6 +64,7 @@ class ReunionController extends Controller
             'codigo' => Str::upper(Str::random(8)),
             'slug_acceso' => Str::slug($validatedData['tema']) . '-' . uniqid(),
             'firma_creador' => $validatedData['firma_creador'],
+            'allow_guests' => $request->boolean('allow_guests'),
         ]);
 
         return response()->json($reunion, 201);

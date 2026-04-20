@@ -2,19 +2,19 @@
 
 return [
     
-    'paths' => ['api/*', 'login', 'sanctum/csrf-cookie', 'reuniones/*', 'asistencia/*'],
+    'paths' => ['api/*', 'sanctum/csrf-cookie'],
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['http://localhost:4321', 'https://asistenciagob.netlify.app','*'],
+    'allowed_origins' => ['https://asistenciagob.netlify.app', 'http://localhost:4321'],
 
     'allowed_origins_patterns' => [],
 
-    'allowed_headers' => ['*'],
+    'allowed_headers' => ['Content-Type', 'X-Requested-With', 'Authorization', 'Accept', 'Origin'],
 
     'exposed_headers' => [],
 
-    'max_age' => 0,
+    'max_age' => 86400,
 
     'supports_credentials' => false,
 ];

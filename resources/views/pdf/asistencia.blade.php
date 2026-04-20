@@ -88,6 +88,8 @@
 <body>
 
 @php
+    // Aseguramos que Carbon use español para este documento
+    \Carbon\Carbon::setLocale('es');
     $paginasDeAsistentes = $reunion->asistentes->count() > 0 ? $reunion->asistentes->chunk(15) : [collect()];
 @endphp
 
@@ -116,7 +118,7 @@
         <tbody>
             <tr>
                 <td style="width: 20%; vertical-align: top; border: none;">
-                    <img src="{{ public_path('icons/logo.png') }}" alt="Logo Gobernación" style="width: 100px;">
+                    <img src="{{ public_path('icons/gobernacion_nit.png') }}" alt="Logo Gobernación" style="width: 100px;">
                 </td>
                 <td style="width: 80%; text-align: right; vertical-align: top; font-family: 'Helvetica', sans-serif;">
                     <div style="font-size: 14px; font-weight: bold;">LISTA ASISTENCIA GENERAL</div>
@@ -152,7 +154,12 @@
                                                 <table style="width: 100%;">
                                                     <tr>
                                                         <td class="form-label">FECHA:</td>
-                                                        <td class="form-data"><div class="line-wrapper">{!! $reunion->fecha ? e(\Carbon\Carbon::parse($reunion->fecha)->locale('es')->format('d \d\e F \d\e Y')) : '&nbsp;' !!}</div></td>
+                                                        <td class="form-data">
+                                                            <div class="line-wrapper">
+                                                                {{-- Cambio principal: uso de isoFormat para forzar el español --}}
+                                                                {!! $reunion->fecha ? e(\Carbon\Carbon::parse($reunion->fecha)->locale('es')->isoFormat('DD [de] MMMM [de] YYYY')) : '&nbsp;' !!}
+                                                            </div>
+                                                        </td>
                                                     </tr>
                                                 </table>
                                             </td>

@@ -16,6 +16,7 @@
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login'])->name('login'); // // 
     Route::get('/asistencia/info/{codigo}', [AsistenciaController::class, 'info']);
+    Route::post('/asistencia/unirse/{codigo}', [AsistenciaController::class, 'unirse']);
 
 
 
@@ -42,7 +43,7 @@
     Route::middleware('auth:sanctum')->group(function () {
     // ... (rutas de logout, user, reuniones)
 
-    Route::post('/asistencia/unirse/{codigo}', [AsistenciaController::class, 'unirse']);
+     
     
 Route::get('/reuniones/{reunion}/pdf', [ReunionController::class, 'generarPdf']);
 
