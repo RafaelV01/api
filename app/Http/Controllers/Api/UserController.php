@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\CaracterizacionPerfil;
 use App\Models\User;
 use App\Models\Role;
 use Illuminate\Http\Request;
@@ -42,7 +43,7 @@ class UserController extends Controller
     // ─── ADMIN: listar todos los usuarios ────────────────────────────────────
     public function index()
     {
-        $usuarios = User::with('role')
+        $usuarios = User::with(['role', 'caracterizacionPerfil'])
             ->orderBy('nombre_completo')
             ->get()
             ->map(fn($u) => $this->formatUser($u));
@@ -74,16 +75,20 @@ class UserController extends Controller
         $user->rol_id = $request->rol_id;
         $user->save();
 
+        if ($request->has('caracterizacion_rol')) {
+            $this->guardarPerfilCaracterizacion($request, $user);
+        }
+
         return response()->json([
             'message' => 'Usuario creado exitosamente.',
-            'user'    => $this->formatUser($user->load('role')),
+            'user'    => $this->formatUser($user->load(['role', 'caracterizacionPerfil'])),
         ], 201);
     }
 
     // ─── ADMIN: ver un usuario ────────────────────────────────────────────────
     public function show(Request $request, $id)
     {
-        $user = User::with('role')->findOrFail($id);
+        $user = User::with(['role', 'caracterizacionPerfil'])->findOrFail($id);
         return response()->json($this->formatUser($user));
     }
 
@@ -118,10 +123,43 @@ class UserController extends Controller
 
         $user->save();
 
+        // Solo el admin puede asignar el rol de Caracterización de Ciudadanía
+        // (independiente de rol_id/roles, que es del sistema de Reuniones).
+        if ($authUser->rol_id === 1 && $request->has('caracterizacion_rol')) {
+            $this->guardarPerfilCaracterizacion($request, $user);
+        }
+
+        $user->load(['role', 'caracterizacionPerfil']);
+
         return response()->json([
             'message' => 'Usuario actualizado correctamente.',
-            'user'    => $this->formatUser($user->load('role')),
+            'user'    => $this->formatUser($user),
         ]);
+    }
+
+    // ─── ADMIN: asigna/actualiza el perfil de Caracterización de un usuario ───
+    private function guardarPerfilCaracterizacion(Request $request, User $user): void
+    {
+        $validated = $request->validate([
+            'caracterizacion_rol' => ['nullable', Rule::in(CaracterizacionPerfil::ROLES)],
+            'caracterizacion_secretaria_id' => 'nullable|integer|exists:caracterizacion_secretarias,id',
+            'caracterizacion_dependencia_id' => 'nullable|integer|exists:caracterizacion_dependencias,id|required_if:caracterizacion_rol,'.CaracterizacionPerfil::ROL_CONTRATISTA,
+        ]);
+
+        if (!$validated['caracterizacion_rol']) {
+            $user->caracterizacionPerfil()->delete();
+            return;
+        }
+
+        CaracterizacionPerfil::updateOrCreate(
+            ['usuario_id' => $user->id],
+            [
+                'rol' => $validated['caracterizacion_rol'],
+                'secretaria_id' => $validated['caracterizacion_secretaria_id'] ?? null,
+                'dependencia_id' => $validated['caracterizacion_dependencia_id'] ?? null,
+                'activo' => true,
+            ]
+        );
     }
 
     // ─── Usuario: cambiar su propia contraseña ────────────────────────────────
@@ -177,6 +215,9 @@ class UserController extends Controller
             'telefono'        => $user->telefono,
             'rol_id'          => $user->rol_id,
             'rol_nombre'      => $user->role?->nombre ?? 'Sin rol',
+            'caracterizacion_rol'            => $user->caracterizacionPerfil?->rol,
+            'caracterizacion_secretaria_id'  => $user->caracterizacionPerfil?->secretaria_id,
+            'caracterizacion_dependencia_id' => $user->caracterizacionPerfil?->dependencia_id,
         ];
     }
 }
