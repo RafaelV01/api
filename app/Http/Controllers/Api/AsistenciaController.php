@@ -8,6 +8,7 @@ use App\Models\Reunion;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class AsistenciaController extends Controller
 {
@@ -89,6 +90,11 @@ class AsistenciaController extends Controller
                 $firma->save();
             }
 
+
+            // Borrar PDF cacheado para que refleje al nuevo asistente
+            $oldKey = "pdf_reunion_{$reunion->id}_v{$reunion->updated_at->timestamp}";
+            @unlink(storage_path("app/pdf_cache/{$oldKey}.pdf"));
+            $reunion->touch();
 
             return response()->json([
                 'message' => 'Asistencia registrada exitosamente.'

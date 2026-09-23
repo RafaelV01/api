@@ -27,8 +27,9 @@ class User extends Authenticatable
         'telefono',
         'email',
         'password',
-        'rol_id',
     ];
+
+    protected $guarded = ['rol_id', 'id'];
 
     /**
      * Los atributos que deben ocultarse para la serialización.
@@ -68,5 +69,14 @@ class User extends Authenticatable
     public function codigosCreados()
     {
         return $this->hasMany(CodigoReunion::class, 'creado_por');
+    }
+
+    /**
+     * Perfil de rol dentro de la funcionalidad de Caracterización de Ciudadanía
+     * (independiente de `rol_id`/`role()`, que pertenece al sistema de Reuniones).
+     */
+    public function caracterizacionPerfil()
+    {
+        return $this->hasOne(CaracterizacionPerfil::class, 'usuario_id');
     }
 }

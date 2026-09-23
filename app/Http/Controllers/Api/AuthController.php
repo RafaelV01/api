@@ -20,15 +20,16 @@ class AuthController extends Controller
             'password' => 'required|string|min:8|confirmed',
         ]);
 
-        $user = User::create([
+        $user = new User([
             'nombre_completo' => $request->nombre_completo,
             'cargo' => $request->cargo,
             'dependencia' => $request->dependencia,
             'email' => $request->email,
             'telefono' => $request->telefono,
             'password' => Hash::make($request->password),
-            'rol_id' => 3,
         ]);
+        $user->rol_id = 3;
+        $user->save();
 
         return response()->json(['message' => 'Usuario registrado exitosamente.'], 201);
     }

@@ -29,4 +29,8 @@ class Kernel extends HttpKernel
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ],
     ];
+
+    protected $middlewareAliases = [
+        'es.admin' => \App\Http\Middleware\EsAdministrador::class,
+    ];
 }

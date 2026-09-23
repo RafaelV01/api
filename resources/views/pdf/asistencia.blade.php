@@ -19,16 +19,18 @@
         }
         .main-table th { text-align: center; font-weight: bold; }
         
-        .firma-cell { 
+        .firma-cell {
             height: 24px;
-            width: 150px; 
-            text-align: center; 
+            width: 150px;
+            text-align: center;
+            padding: 0px 1px;
         }
-        .firma-img { 
+        .firma-img {
             max-width: 148px;
             max-height: 23px;
-            margin: 0 auto; 
-            display: block; 
+            width: 148px;
+            height: 23px;
+            display: block;
         }
         .text-center { text-align: center; }
         .font-bold { font-weight: bold; }
@@ -218,12 +220,12 @@
                                                 <tr>
     <td class="form-label">FIRMA:</td>
     <td class="form-data">
-        <div class="line-wrapper" style="min-height:20px;">
+        <div class="line-wrapper" style="min-height:20px; text-align:center;">
             @if(!empty($reunion->firma_creador))
-                <img 
-                    src="{{ $reunion->firma_creador }}" 
-                    alt="Firma Creador" 
-                    style="max-width:100px;max-height:18px;display:block;margin:0 auto;"
+                <img
+                    src="{{ $reunion->firma_creador }}"
+                    alt="Firma Creador"
+                    style="max-width:110px; max-height:18px; width:110px; height:18px; display:inline-block;"
                 />
             @else
                 &nbsp;
