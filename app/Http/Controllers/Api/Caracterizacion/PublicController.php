@@ -54,7 +54,8 @@ class PublicController extends Controller
             'item2_tipo_documento' => ['required', 'string', $opcion('tipo_documento')],
             'item3_numero_documento' => 'required|string|max:30',
             'item4_cargo_barrio_vereda' => 'required|string|max:255',
-            'item5_municipio' => ['required', 'string', $opcion('municipio')],
+            // Municipio admite el catálogo o texto libre (igual que el formato de Reuniones).
+            'item5_municipio' => 'required|string|max:50',
             'item6_zona' => 'required|in:urbana,rural',
             'item7_ubicacion_tipo' => ['required', 'string', $opcion('ubicacion_tipo')],
             'item7_ubicacion_detalle' => 'nullable|string|max:255',
