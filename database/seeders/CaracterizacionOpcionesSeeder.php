@@ -23,12 +23,22 @@ class CaracterizacionOpcionesSeeder extends Seeder
             'SAN LUIS DE PALENQUE', 'TAMARA', 'TAURAMENA', 'TRINIDAD', 'VILLANUEVA', 'YOPAL',
         ]);
 
-        $this->sembrar('ubicacion_tipo', [
-            'Barrio', 'Centro Poblado', 'Comuna', 'Corregimiento', 'Inspección de Policía',
-            'Localidad', 'Vereda', 'Finca', 'Nombre del Predio',
-        ]);
+        // Ubicación (item 7): el catálogo depende de Zona + Municipio (ver
+        // MUNICIPIOS_RURAL_CON_VEREDA en RegistrarCiudadano.jsx / PublicController).
+        $this->sembrar('ubicacion_urbana', ['Barrio', 'Comuna']);
+        $this->sembrar('ubicacion_rural_estandar', ['Corregimiento', 'Resguardo']);
+        $this->sembrar('ubicacion_rural_especial', ['Corregimiento', 'Resguardo', 'Vereda']);
+        // Catálogo anterior: se desactiva (no se borra) para no perder el histórico de quién lo usó.
+        CaracterizacionOpcion::where('categoria', 'ubicacion_tipo')->update(['activo' => false]);
 
-        $this->sembrar('contacto_tipo', ['Teléfono', 'Celular']);
+        $this->sembrar('contacto_tipo', ['Celular']);
+        CaracterizacionOpcion::where('categoria', 'contacto_tipo')->where('valor', 'Teléfono')->update(['activo' => false]);
+
+        // Sector de la Organización (item 12): antes texto libre, ahora catálogo con código.
+        $this->sembrar('sector_organizacion', [
+            '1 - Educación', '2 - Cultura', '3 - Ambiental', '4 - Salud',
+            '5 - Infraestructura', '6 - Vivienda', '7 - Gobierno', '8 - Institucional',
+        ]);
 
         $this->sembrar('genero', ['Mujer', 'Hombre', 'No Binario', 'Transgénero', 'LGBTIQ+ OSIGD']);
 
@@ -40,33 +50,12 @@ class CaracterizacionOpcionesSeeder extends Seeder
 
         $this->sembrar('enfoque_diferencial', ['Discapacidad', 'Cabeza de Hogar', 'Víctimas de Conflicto', 'Habitante de la calle']);
 
-        $this->sembrar('tamano_familia', range(1, 12));
+        // tamano_familia ya no usa catálogo: item16 pasa a ser un número libre.
+        CaracterizacionOpcion::where('categoria', 'tamano_familia')->update(['activo' => false]);
 
-        $this->sembrar('canal_comunicacion', ['Radio', 'Página Web', 'Redes Sociales', 'Juntas de Acción Comunal']);
-
-        // Idiomas/Lenguas/Dialectos (item 18) — agrupado por `grupo` para el <select> agrupado.
-        $this->sembrarAgrupado('idioma_lengua_dialecto', 'IDIOMA', [
-            'Alemán', 'Inglés', 'Francés', 'Portugués', 'Italiano', 'Mandarín', 'Japonés',
-        ]);
-        $this->sembrarAgrupado('idioma_lengua_dialecto', 'LENGUA', [
-            'Achagua', 'Amorua', 'Andoke', 'Awapit', 'Baniva', 'Bara', 'Barasano', 'Bari',
-            'Betoye-guahibo', 'Bora', 'Cabiyari', 'Carapana', 'Cocama', 'Cubeo', 'Curripaco',
-            'Damana', 'Desano', 'Embera', 'Embera chami', 'Embera dovida', 'Embera katio',
-            'Eperara siapidara', 'Ette taara', 'Guahibo', 'Guna dule', 'Hitnu (macaguan)', 'Hupdu',
-            'Iku', 'Inga (runa simi)', 'Jiw', 'Juhup', 'Jupda', 'Kakua', 'Kamentsa', 'Karijona',
-            'Kichwa', 'Kofan', 'Kogui', 'Korebaju', 'Letuama', 'Makaguaje', 'Makú', 'Makuna',
-            'Masiguare', 'Matapí', 'Miraña', 'Muinane', 'Muruí (uitoto)', 'Nambrik', 'Nasa yuwe',
-            'Nonuya', 'Nukak', 'Ocaina', 'Piapoco', 'Piaroa', 'Piratapuyo', 'Pisamira', 'Puinave',
-            'Sáliba', 'Sikuani', 'Siona', 'Siriano (Tubu)', 'Taiwano (eduria)', 'Tanimuka',
-            'Tariano', 'Tatuyo', 'Tikuna', 'Tinigua', 'Tsiripu (cuiba)', 'Tukano', 'Tuyuca',
-            'Uwa (tunebo)', 'Wamonae', 'Wanano', 'Wayunaiki', 'Wipiwi', 'Wounaan', 'Yagua',
-            'Yamalero', 'Yaruro', 'Yauna', 'Yeral (ñengatu)', 'Yukpa', 'Yukuna', 'Yuruti',
-        ]);
-        $this->sembrarAgrupado('idioma_lengua_dialecto', 'DIALECTO', [
-            'Acento Llanero', 'Acento Costeño', 'Acento bogotano o "Rolo"', 'Acento Cundiboyacense',
-            'Acento Paisa', 'Acento Vallecaucano', 'Acento Pastuso', 'Acento Santandereano',
-            'Acento Opita', 'Acento Chocoano', 'Acento Isleño o Sanandresano',
-        ]);
+        // Ítems 17 (Canal de Comunicación) y 18 (Idiomas/Lenguas/Dialectos) fueron eliminados
+        // del formulario — se desactivan sus catálogos en vez de borrarlos.
+        CaracterizacionOpcion::whereIn('categoria', ['canal_comunicacion', 'idioma_lengua_dialecto'])->update(['activo' => false]);
 
         $this->sembrar('ods', [
             '1. Fin de la pobreza.', '2. Hambre cero', '3. Salud y Bienestar',

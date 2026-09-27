@@ -49,6 +49,16 @@ class PublicController extends Controller
             ->where('categoria', $categoria)
             ->where('activo', true);
 
+        // Ubicación (item 7): el catálogo válido depende de Zona + Municipio.
+        // Orocué, Paz de Ariporo y Sacamá distinguen Vereda de Resguardo/Corregimiento;
+        // el resto de municipios solo maneja Resguardo/Corregimiento en zona rural.
+        $municipiosConVereda = ['OROCUE', 'PAZ DE ARIPORO', 'SACAMA'];
+        $categoriaUbicacion = $request->input('item6_zona') === 'urbana'
+            ? 'ubicacion_urbana'
+            : (in_array(strtoupper((string) $request->input('item5_municipio')), $municipiosConVereda, true)
+                ? 'ubicacion_rural_especial'
+                : 'ubicacion_rural_estandar');
+
         $validated = $request->validate([
             'item1_nombre' => 'required|string|max:255',
             'item2_tipo_documento' => ['required', 'string', $opcion('tipo_documento')],
@@ -57,22 +67,19 @@ class PublicController extends Controller
             // Municipio admite el catálogo o texto libre (igual que el formato de Reuniones).
             'item5_municipio' => 'required|string|max:50',
             'item6_zona' => 'required|in:urbana,rural',
-            'item7_ubicacion_tipo' => ['required', 'string', $opcion('ubicacion_tipo')],
+            'item7_ubicacion_tipo' => ['required', 'string', $opcion($categoriaUbicacion)],
             'item7_ubicacion_detalle' => 'nullable|string|max:255',
-            'item8_contacto_tipo' => ['required', 'string', $opcion('contacto_tipo')],
             'item8_contacto_valor' => 'required|string|max:30',
             'item9_genero' => ['required', 'string', $opcion('genero')],
             'item10_etnico' => ['nullable', 'string', $opcion('etnico')],
             'item11_problematicas' => 'nullable|array',
             'item11_problematicas.*' => ['string', $opcion('problematica')],
-            'item12_sector_organizacion' => 'nullable|string|max:150',
+            'item12_sector_organizacion' => ['nullable', 'string', $opcion('sector_organizacion')],
             'item13_clasificacion_organizacion' => ['nullable', 'string', $opcion('clasificacion_organizacion')],
             'item14_enfoques' => 'nullable|array',
             'item14_enfoques.*' => ['string', $opcion('enfoque_diferencial')],
             'item15_edad' => 'required|integer|min:0|max:120',
-            'item16_tamano_grupo_familiar' => ['required', 'integer', $opcion('tamano_familia')],
-            'item17_canal_comunicacion' => ['required', 'string', $opcion('canal_comunicacion')],
-            'item18_idioma_lengua_dialecto' => ['required', 'string', $opcion('idioma_lengua_dialecto')],
+            'item16_tamano_grupo_familiar' => 'required|integer|min:1|max:20',
             'firma_base64' => 'required|string',
             'firma_hash' => 'required|string|size:64',
         ]);
@@ -87,7 +94,8 @@ class PublicController extends Controller
                 'item6_zona' => $validated['item6_zona'],
                 'item7_ubicacion_tipo' => $validated['item7_ubicacion_tipo'],
                 'item7_ubicacion_detalle' => $validated['item7_ubicacion_detalle'] ?? null,
-                'item8_contacto_tipo' => $validated['item8_contacto_tipo'],
+                // Único tipo de contacto disponible; ya no se le pregunta al ciudadano.
+                'item8_contacto_tipo' => 'Celular',
                 'item8_contacto_valor' => $validated['item8_contacto_valor'],
                 'item9_genero' => $validated['item9_genero'],
                 'item10_etnico' => $validated['item10_etnico'] ?? null,
@@ -95,8 +103,6 @@ class PublicController extends Controller
                 'item13_clasificacion_organizacion' => $validated['item13_clasificacion_organizacion'] ?? null,
                 'item15_edad' => $validated['item15_edad'],
                 'item16_tamano_grupo_familiar' => $validated['item16_tamano_grupo_familiar'],
-                'item17_canal_comunicacion' => $validated['item17_canal_comunicacion'],
-                'item18_idioma_lengua_dialecto' => $validated['item18_idioma_lengua_dialecto'],
                 'firma_ciudadano_base64' => $validated['firma_base64'],
                 'firma_ciudadano_hash' => $validated['firma_hash'],
                 'ip_origen' => $request->ip(),

@@ -215,7 +215,10 @@ class ActividadController extends Controller
         $sheet->setCellValue('AI4', implode("\n", $lineasAI4));
 
         // ── Filas de datos (empiezan en la fila 8, igual que en el formato original) ──
-        $colsParte1 = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AD', 'AE', 'AF', 'AG', 'AH', 'AI'];
+        // AG (Canal de Comunicación) y AH (Idiomas) se dejan sin escribir: esos ítems
+        // (17 y 18) se eliminaron del formulario, pero la plantilla original conserva
+        // esas columnas físicas para no alterar su estructura.
+        $colsParte1 = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AD', 'AE', 'AF', 'AI'];
         $colsParte2 = ['AJ', 'AK', 'AL', 'AM', 'AN', 'AO', 'AP', 'AQ', 'AR', 'AS', 'AT', 'AU', 'AV', 'AW', 'AX', 'AY', 'AZ', 'BA', 'BB', 'BC'];
 
         $fila = 8;
@@ -235,7 +238,7 @@ class ActividadController extends Controller
                 $marca($a->item6_zona === 'urbana'),
                 $marca($a->item6_zona === 'rural'),
                 trim($a->item7_ubicacion_tipo.' '.$a->item7_ubicacion_detalle),
-                trim($a->item8_contacto_tipo.': '.$a->item8_contacto_valor),
+                $a->item8_contacto_valor,
                 $marca($a->item9_genero === 'Mujer'),
                 $marca($a->item9_genero === 'Hombre'),
                 $marca($a->item9_genero === 'No Binario'),
@@ -258,8 +261,6 @@ class ActividadController extends Controller
                 $marca(in_array('Habitante de la calle', $enfoques)),
                 $a->item15_edad,
                 $a->item16_tamano_grupo_familiar,
-                $a->item17_canal_comunicacion,
-                $a->item18_idioma_lengua_dialecto,
                 null, // firma -> imagen embebida aparte
             ];
             foreach ($colsParte1 as $i => $col) {

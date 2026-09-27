@@ -82,8 +82,12 @@
 
     $tipoEventoMarca = fn (string $valor) => $actividad->tipo_evento === $valor ? 'X' : '';
 
-    // ── Geometría exacta de la grilla, tomada del PDF institucional FO-PDD-19 ──
-    $colW = [14.6, 119.3, 22.0, 48.1, 53.3, 60.0, 8.7, 11.9, 29.1, 55.4, 8.6, 8.6, 8.6, 8.7, 10.7, 11.3, 11.3, 11.3, 5.2, 9.5, 6.7, 6.7, 10.7, 10.7, 13.4, 13.5, 10.7, 10.7, 10.6, 10.7, 13.8, 7.1, 11.0, 18.4, 91.2];
+    // ── Geometría de la grilla, basada en el PDF institucional FO-PDD-19 ──
+    // Los ítems 17 (Canal de Comunicación) y 18 (Idiomas/Lenguas/Dialectos) del original
+    // se eliminaron del formulario; su ancho (11.0+18.4=29.4pt) se repartió entre las
+    // columnas que quedaban más cortas de espacio para su título (Tipo/Número Documento,
+    // ZONA, Ubicación, Institucional, Clasificación de la Organización).
+    $colW = [14.6, 119.3, 28.0, 54.1, 53.3, 60.0, 11.7, 14.9, 31.5, 55.4, 8.6, 8.6, 8.6, 8.7, 10.7, 11.3, 11.3, 11.3, 10.2, 9.5, 6.7, 6.7, 10.7, 10.7, 15.4, 15.5, 10.7, 10.7, 10.6, 10.7, 13.8, 7.1, 91.2];
     $colX = [];
     $acc = 0.0;
     foreach ($colW as $w) { $colX[] = $acc; $acc += $w; }
@@ -114,9 +118,7 @@
         [23, 'SECTOR De La ORGANIZACIÓN (12)', true, false],
         [30, 'EDAD - grupo etário (15)', true, false],
         [31, 'Tamaño Grupo Familiar (16)', true, false],
-        [32, 'Canal de Comunicación (17)', true, false],
-        [33, 'Idiomas, Lenguas o dialectos (18)', true, false],
-        [34, 'FIRMA (19)', false, true],
+        [32, 'FIRMA (19)', false, true],
     ];
 
     // ZONA: ocupa fila1+fila2 combinadas en una sola celda (sin divisor interno), igual que el PDF fuente.
@@ -289,7 +291,7 @@
             <div class="vline" style="left:{{ $x($ci) }}pt; top:{{ $H1 }}pt; height:{{ $alsoRow3 ? $H2 + $H3 : $H2 }}pt;"></div>
         @endforeach
         {{-- Líneas verticales: banda fila3 + filas de datos, en cada columna hoja --}}
-        @for ($ci = 0; $ci <= 35; $ci++)
+        @for ($ci = 0; $ci <= 33; $ci++)
             <div class="vline" style="left:{{ $x($ci) }}pt; top:{{ $H1 + $H2 }}pt; height:{{ $gridH - $H1 - $H2 }}pt;"></div>
         @endfor
 
@@ -323,7 +325,7 @@
                     $marca($a->item6_zona === 'urbana'),
                     $marca($a->item6_zona === 'rural'),
                     trim($a->item7_ubicacion_tipo.' '.$a->item7_ubicacion_detalle),
-                    $a->item8_contacto_tipo.': '.$a->item8_contacto_valor,
+                    $a->item8_contacto_valor,
                     $marca($a->item9_genero === 'Mujer'),
                     $marca($a->item9_genero === 'Hombre'),
                     $marca($a->item9_genero === 'No Binario'),
@@ -346,20 +348,18 @@
                     $marca(in_array('Habitante de la calle', $enfoques)),
                     $a->item15_edad,
                     $a->item16_tamano_grupo_familiar,
-                    $a->item17_canal_comunicacion,
-                    $a->item18_idioma_lengua_dialecto,
                     null, // firma va aparte (imagen)
-                ] : array_merge([$numero], array_fill(0, 33, ''), [null]);
+                ] : array_merge([$numero], array_fill(0, 31, ''), [null]);
 
-                $leftAligned = [1, 4, 5, 8, 9, 23, 32, 33];
+                $leftAligned = [1, 4, 5, 8, 9, 23];
                 $centered = [0, 2, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29, 30, 31];
             @endphp
 
             {{-- línea horizontal inferior de la fila --}}
             <div class="hline" style="left:0pt; top:{{ $rowTop + $rowH }}pt; width:{{ $gridW }}pt;"></div>
 
-            @for ($ci = 0; $ci < 35; $ci++)
-                @if ($ci === 34)
+            @for ($ci = 0; $ci < 33; $ci++)
+                @if ($ci === 32)
                     <div class="cell firma-cell" style="left:{{ $x($ci) }}pt; top:{{ $rowTop }}pt; width:{{ $w($ci) }}pt; height:{{ $rowH }}pt;">
                         @if ($a && $a->firma_ciudadano_base64)
                             @php
