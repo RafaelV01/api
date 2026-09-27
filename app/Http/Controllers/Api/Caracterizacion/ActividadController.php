@@ -40,6 +40,21 @@ class ActividadController extends Controller
         if ($request->filled('estado_aprobacion')) {
             $query->where('estado_aprobacion', $request->string('estado_aprobacion'));
         }
+        if ($request->filled('estado')) {
+            $query->where('estado', $request->string('estado'));
+        }
+        if ($request->filled('municipio')) {
+            $query->where('municipio', $request->string('municipio'));
+        }
+        if ($request->filled('tema')) {
+            $query->where('tema', 'like', '%'.$request->string('tema').'%');
+        }
+        if ($request->filled('fecha_desde')) {
+            $query->whereDate('fecha', '>=', $request->date('fecha_desde'));
+        }
+        if ($request->filled('fecha_hasta')) {
+            $query->whereDate('fecha', '<=', $request->date('fecha_hasta'));
+        }
 
         return response()->json($query->get());
     }
