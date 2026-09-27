@@ -71,4 +71,50 @@ class AprobacionController extends Controller
             CaracterizacionAprobacion::with('actor:id,nombre_completo')->latest()->paginate(50)
         );
     }
+
+    /**
+     * Resumen para el panel de Aprobaciones: solo los grupos (secretaría/dependencia/
+     * usuario) que realmente tienen actividades pendientes -antes se mostraba el botón
+     * de aprobar/rechazar en bloque incluso para grupos vacíos- más un feed de lo último
+     * subido, para ver de un vistazo qué se aprobó/rechazó recientemente.
+     */
+    public function resumen()
+    {
+        $pendientesPorSecretaria = CaracterizacionActividad::query()
+            ->select('secretaria_id', DB::raw('count(*) as pendientes'))
+            ->where('estado_aprobacion', 'pendiente')
+            ->groupBy('secretaria_id')
+            ->with('secretaria:id,nombre')
+            ->get()
+            ->map(fn ($row) => ['id' => $row->secretaria_id, 'nombre' => $row->secretaria?->nombre, 'pendientes' => $row->pendientes]);
+
+        $pendientesPorDependencia = CaracterizacionActividad::query()
+            ->select('dependencia_id', DB::raw('count(*) as pendientes'))
+            ->where('estado_aprobacion', 'pendiente')
+            ->groupBy('dependencia_id')
+            ->with('dependencia:id,nombre,secretaria_id')
+            ->get()
+            ->map(fn ($row) => ['id' => $row->dependencia_id, 'nombre' => $row->dependencia?->nombre, 'pendientes' => $row->pendientes]);
+
+        $pendientesPorUsuario = CaracterizacionActividad::query()
+            ->select('creador_id', DB::raw('count(*) as pendientes'))
+            ->where('estado_aprobacion', 'pendiente')
+            ->groupBy('creador_id')
+            ->with('creador:id,nombre_completo')
+            ->get()
+            ->map(fn ($row) => ['id' => $row->creador_id, 'nombre' => $row->creador?->nombre_completo, 'pendientes' => $row->pendientes]);
+
+        $recientes = CaracterizacionActividad::query()
+            ->with(['creador:id,nombre_completo', 'secretaria:id,nombre', 'dependencia:id,nombre'])
+            ->latest('updated_at')
+            ->limit(20)
+            ->get(['id', 'tema', 'municipio', 'estado', 'estado_aprobacion', 'creador_id', 'secretaria_id', 'dependencia_id', 'created_at', 'updated_at']);
+
+        return response()->json([
+            'por_secretaria' => $pendientesPorSecretaria->values(),
+            'por_dependencia' => $pendientesPorDependencia->values(),
+            'por_usuario' => $pendientesPorUsuario->values(),
+            'recientes' => $recientes,
+        ]);
+    }
 }

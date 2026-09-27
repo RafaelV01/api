@@ -103,6 +103,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::post('/aprobaciones', [AprobacionController::class, 'resolver']);
             Route::get('/aprobaciones', [AprobacionController::class, 'historial']);
+            Route::get('/aprobaciones/resumen', [AprobacionController::class, 'resumen']);
 
             Route::get('/estadisticas', [EstadisticasController::class, 'index']);
         });
