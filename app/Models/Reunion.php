@@ -1,12 +1,13 @@
 <?php
 namespace App\Models;
 
+use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Reunion extends Model
 {
-    use HasFactory;
+    use HasFactory, Auditable;
     protected $table = 'reuniones';
     protected $fillable = ['codigo', 'slug_acceso', 'tema', 'fecha', 'hora_inicio', 'hora_fin', 'dependencia_lugar', 'ciudad_municipio', 'tipo_evento', 'otro_evento', 'expositor', 'firma_creador_id', 'creador_id', 'qr_png_path', 'estado','firma_creador', 'allow_guests'];
 

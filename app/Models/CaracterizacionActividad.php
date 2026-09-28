@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class CaracterizacionActividad extends Model
 {
-    use HasFactory;
+    use HasFactory, Auditable;
 
     protected $table = 'caracterizacion_actividades';
 
@@ -47,6 +48,24 @@ class CaracterizacionActividad extends Model
     public function asistentes()
     {
         return $this->hasMany(CaracterizacionAsistente::class, 'actividad_id');
+    }
+
+    /**
+     * Parte 2 (ítems 20–32, "seguimiento") — una sola fila por actividad, ya no
+     * una por ciudadano.
+     */
+    public function seguimiento()
+    {
+        return $this->hasOne(CaracterizacionSeguimiento::class, 'actividad_id');
+    }
+
+    /**
+     * Usuarios invitados (pendientes, aceptados o rechazados) a ayudar a completar
+     * la Parte 2 de esta actividad, además de su creador.
+     */
+    public function colaboradores()
+    {
+        return $this->hasMany(CaracterizacionColaborador::class, 'actividad_id');
     }
 
     /**

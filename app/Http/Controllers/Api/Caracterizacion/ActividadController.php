@@ -7,7 +7,9 @@ use App\Models\CaracterizacionActividad;
 use App\Models\CaracterizacionAsistente;
 use App\Models\CaracterizacionAsistenteEnfoque;
 use App\Models\CaracterizacionAsistenteProblematica;
+use App\Models\CaracterizacionColaborador;
 use App\Models\CaracterizacionPerfil;
+use App\Models\CaracterizacionSeguimiento;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -104,7 +106,7 @@ class ActividadController extends Controller
     {
         $this->autorizarAcceso($actividad);
 
-        $actividad->load(['dependencia', 'secretaria', 'creador', 'asistentes' => function ($q) {
+        $actividad->load(['dependencia', 'secretaria', 'creador', 'seguimiento', 'colaboradores.usuario', 'asistentes' => function ($q) {
             $q->with(['problematicas', 'enfoques']);
         }]);
 
@@ -112,16 +114,13 @@ class ActividadController extends Controller
     }
 
     /**
-     * El contratista completa la Parte 2 (ítems 20–32) de una fila ya diligenciada
-     * por el ciudadano en la Parte 1.
+     * El contratista creador (o un colaborador invitado y aceptado) completa la
+     * Parte 2 (ítems 20–32) de la actividad — una sola vez por actividad, no por
+     * cada ciudadano registrado en la Parte 1.
      */
-    public function completarParte2(Request $request, CaracterizacionActividad $actividad, CaracterizacionAsistente $asistente)
+    public function completarParte2(Request $request, CaracterizacionActividad $actividad)
     {
         $this->autorizarAcceso($actividad);
-
-        if ($asistente->actividad_id !== $actividad->id) {
-            return response()->json(['message' => 'El asistente no pertenece a esta actividad.'], 404);
-        }
 
         $opcion = fn (string $categoria) => Rule::exists('caracterizacion_opciones', 'valor')
             ->where('categoria', $categoria)
@@ -149,12 +148,108 @@ class ActividadController extends Controller
             'item32_fecha' => 'nullable|date',
         ]);
 
-        $asistente->fill($validated);
-        $asistente->part2_completado_por = Auth::id();
-        $asistente->part2_completado_en = now();
-        $asistente->save();
+        $seguimiento = CaracterizacionSeguimiento::updateOrCreate(
+            ['actividad_id' => $actividad->id],
+            [
+                ...$validated,
+                'completado_por' => Auth::id(),
+                'completado_en' => now(),
+            ]
+        );
 
-        return response()->json($asistente);
+        return response()->json($seguimiento);
+    }
+
+    /**
+     * El creador de la actividad invita a otro usuario existente a ayudarle a
+     * completar la Parte 2. Solo el creador original puede invitar (no se permite
+     * que un colaborador ya aceptado invite a más gente, para evitar cadenas de
+     * invitaciones sin control).
+     */
+    public function invitarColaborador(Request $request, CaracterizacionActividad $actividad)
+    {
+        abort_unless(Auth::id() === $actividad->creador_id, 403, 'Solo el creador de la actividad puede invitar colaboradores.');
+
+        $validated = $request->validate([
+            'usuario_id' => 'required|exists:usuarios,id',
+        ]);
+
+        if ((int) $validated['usuario_id'] === (int) $actividad->creador_id) {
+            return response()->json(['message' => 'No puedes invitarte a ti mismo como colaborador.'], 422);
+        }
+
+        $existente = CaracterizacionColaborador::where('actividad_id', $actividad->id)
+            ->where('usuario_id', $validated['usuario_id'])
+            ->first();
+
+        if ($existente) {
+            return response()->json([
+                'message' => 'Este usuario ya fue invitado a esta actividad.',
+                'colaborador' => $existente->load('usuario'),
+            ], 422);
+        }
+
+        $colaborador = CaracterizacionColaborador::create([
+            'actividad_id' => $actividad->id,
+            'usuario_id' => $validated['usuario_id'],
+            'invitado_por' => Auth::id(),
+            'estado' => CaracterizacionColaborador::ESTADO_PENDIENTE,
+            'created_at' => now(),
+        ]);
+
+        return response()->json($colaborador->load('usuario'), 201);
+    }
+
+    /**
+     * Invitaciones de colaboración (a cualquier actividad) recibidas por el
+     * usuario autenticado. ?estado= filtra por pendiente/aceptado/rechazado.
+     */
+    public function misInvitaciones(Request $request)
+    {
+        $query = CaracterizacionColaborador::with([
+            'actividad.secretaria', 'actividad.dependencia', 'actividad.creador', 'invitadoPor',
+        ])->where('usuario_id', Auth::id());
+
+        if ($request->filled('estado')) {
+            $query->where('estado', $request->string('estado'));
+        }
+
+        return response()->json($query->latest('created_at')->get());
+    }
+
+    /**
+     * El usuario invitado acepta o rechaza una invitación de colaboración.
+     */
+    public function responderInvitacion(Request $request, CaracterizacionColaborador $colaborador)
+    {
+        abort_unless(Auth::id() === $colaborador->usuario_id, 403, 'No autorizado para responder esta invitación.');
+
+        $validated = $request->validate([
+            'accion' => ['required', Rule::in([CaracterizacionColaborador::ESTADO_ACEPTADO, CaracterizacionColaborador::ESTADO_RECHAZADO])],
+        ]);
+
+        $colaborador->estado = $validated['accion'];
+        $colaborador->responded_at = now();
+        $colaborador->save();
+
+        return response()->json($colaborador);
+    }
+
+    /**
+     * Actividades de otras personas en las que el usuario autenticado colabora
+     * (invitación aceptada) — alimenta la sección "Actividades Compartidas Conmigo".
+     * Mismo formato de respuesta que index().
+     */
+    public function misColaboraciones(Request $request)
+    {
+        $query = CaracterizacionActividad::with(['dependencia', 'secretaria', 'creador'])
+            ->withCount('asistentes')
+            ->whereHas('colaboradores', function ($q) {
+                $q->where('usuario_id', Auth::id())->where('estado', CaracterizacionColaborador::ESTADO_ACEPTADO);
+            })
+            ->latest();
+
+        return response()->json($query->get());
     }
 
     /**
@@ -174,7 +269,7 @@ class ActividadController extends Controller
     {
         $this->autorizarAcceso($actividad);
 
-        $actividad->load(['asistentes.problematicas', 'asistentes.enfoques', 'dependencia', 'secretaria']);
+        $actividad->load(['asistentes.problematicas', 'asistentes.enfoques', 'dependencia', 'secretaria', 'seguimiento']);
 
         $pdf = Pdf::loadView('pdf.caracterizacion', ['actividad' => $actividad]);
 
@@ -196,7 +291,8 @@ class ActividadController extends Controller
     {
         $this->autorizarAcceso($actividad);
 
-        $actividad->load(['asistentes.problematicas', 'asistentes.enfoques', 'dependencia', 'secretaria']);
+        $actividad->load(['asistentes.problematicas', 'asistentes.enfoques', 'dependencia', 'secretaria', 'seguimiento']);
+        $seguimiento = $actividad->seguimiento;
 
         $templatePath = resource_path('templates/FO-PDD-19.xlsx');
         $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($templatePath);
@@ -321,27 +417,31 @@ class ActividadController extends Controller
                 }
             }
 
+            // Parte 2 (ítems 20–32) ahora vive una sola vez por actividad (CaracterizacionSeguimiento),
+            // así que el mismo valor se repite en cada fila de ciudadano — igual que el formato físico
+            // repite los datos del proyecto/beneficio en cada fila. La única excepción es el grupo
+            // etáreo (ítem 25): ese sigue siendo por persona, calculado de la edad propia de cada fila.
             $valoresParte2 = [
-                $a->item20_codigo_dane,
-                $a->item21_categoria,
-                $a->item21_bien_servicio,
-                $a->item22_descripcion_beneficio,
-                optional($a->item23_fecha_beneficio)->format('d/m/Y'),
-                $a->item24_gestion_inversion,
-                $a->item25_grupo_etareo,
-                $a->item26_sector,
-                $a->item26_programa,
-                $a->item26_meta_producto,
-                $a->item27_nombre_proyecto,
-                $a->item28_ods,
-                $a->item28_ddhh,
-                $a->item28_pilares_paz,
-                $a->item29_politica_publica,
-                $a->item30_politica_mipg,
-                $a->item31_total_beneficiarios,
-                $a->item32_acto_tipo,
-                $a->item32_numero,
-                optional($a->item32_fecha)->format('d/m/Y'),
+                $seguimiento?->item20_codigo_dane,
+                $seguimiento?->item21_categoria,
+                $seguimiento?->item21_bien_servicio,
+                $seguimiento?->item22_descripcion_beneficio,
+                optional($seguimiento?->item23_fecha_beneficio)->format('d/m/Y'),
+                $seguimiento?->item24_gestion_inversion,
+                CaracterizacionAsistente::calcularGrupoEtareo($a->item15_edad),
+                $seguimiento?->item26_sector,
+                $seguimiento?->item26_programa,
+                $seguimiento?->item26_meta_producto,
+                $seguimiento?->item27_nombre_proyecto,
+                $seguimiento?->item28_ods,
+                $seguimiento?->item28_ddhh,
+                $seguimiento?->item28_pilares_paz,
+                $seguimiento?->item29_politica_publica,
+                $seguimiento?->item30_politica_mipg,
+                $seguimiento?->item31_total_beneficiarios,
+                $seguimiento?->item32_acto_tipo,
+                $seguimiento?->item32_numero,
+                optional($seguimiento?->item32_fecha)->format('d/m/Y'),
             ];
             foreach ($colsParte2 as $i => $col) {
                 if ($valoresParte2[$i] !== null) {
@@ -375,17 +475,23 @@ class ActividadController extends Controller
 
     /**
      * Verifica que el usuario autenticado pueda ver/editar esta actividad según
-     * su perfil de caracterización (mismo criterio que scopeVisiblePara).
+     * su perfil de caracterización (mismo criterio que scopeVisiblePara), o porque
+     * es un colaborador invitado por el creador y que ya aceptó la invitación.
      */
     private function autorizarAcceso(CaracterizacionActividad $actividad): void
     {
         $perfil = Auth::user()->caracterizacionPerfil;
 
-        $autorizado = $perfil && $perfil->activo && (
+        $esColaboradorAceptado = CaracterizacionColaborador::where('actividad_id', $actividad->id)
+            ->where('usuario_id', Auth::id())
+            ->where('estado', CaracterizacionColaborador::ESTADO_ACEPTADO)
+            ->exists();
+
+        $autorizado = $esColaboradorAceptado || ($perfil && $perfil->activo && (
             $perfil->rol === CaracterizacionPerfil::ROL_ADMINISTRADOR
             || ($perfil->rol === CaracterizacionPerfil::ROL_SECRETARIA && $perfil->secretaria_id === $actividad->secretaria_id)
             || ($perfil->rol === CaracterizacionPerfil::ROL_CONTRATISTA && Auth::id() === $actividad->creador_id)
-        );
+        ));
 
         abort_unless($autorizado, 403, 'No autorizado para esta actividad.');
     }

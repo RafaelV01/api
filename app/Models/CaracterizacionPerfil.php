@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class CaracterizacionPerfil extends Model
 {
-    use HasFactory;
+    use HasFactory, Auditable;
 
     protected $table = 'caracterizacion_perfiles';
     protected $fillable = ['usuario_id', 'rol', 'secretaria_id', 'dependencia_id', 'activo'];

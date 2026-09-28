@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class CaracterizacionAsistente extends Model
 {
-    use HasFactory;
+    use HasFactory, Auditable;
 
     protected $table = 'caracterizacion_asistentes';
 
@@ -22,30 +23,9 @@ class CaracterizacionAsistente extends Model
         'item15_edad', 'item16_tamano_grupo_familiar', 'item17_canal_comunicacion',
         'item18_idioma_lengua_dialecto', 'firma_ciudadano_base64', 'firma_ciudadano_hash',
         'ip_origen', 'user_agent',
-        // Parte 2 — la completa después el contratista
-        'item20_codigo_dane', 'item21_categoria', 'item21_bien_servicio',
-        'item22_descripcion_beneficio', 'item23_fecha_beneficio', 'item24_gestion_inversion',
-        'item26_sector', 'item26_programa', 'item26_meta_producto', 'item27_nombre_proyecto',
-        'item28_ods', 'item28_ddhh', 'item28_pilares_paz', 'item29_politica_publica',
-        'item30_politica_mipg', 'item31_total_beneficiarios', 'item32_acto_tipo',
-        'item32_numero', 'item32_fecha', 'part2_completado_por', 'part2_completado_en',
+        // Parte 2 (ítems 20–32) ya NO vive aquí — ver CaracterizacionSeguimiento: ahora
+        // se completa una sola vez por actividad, no por cada ciudadano registrado.
     ];
-
-    // item25_grupo_etareo queda fuera de $fillable a propósito: es calculado, nunca viene del cliente.
-    protected $guarded = ['id', 'item25_grupo_etareo'];
-
-    protected $casts = [
-        'item23_fecha_beneficio' => 'date',
-        'item32_fecha' => 'date',
-        'part2_completado_en' => 'datetime',
-    ];
-
-    protected static function booted(): void
-    {
-        static::saving(function (CaracterizacionAsistente $asistente) {
-            $asistente->item25_grupo_etareo = self::calcularGrupoEtareo($asistente->item15_edad);
-        });
-    }
 
     /**
      * Replica exactamente la fórmula de la hoja FO-PDD-19 del Excel fuente:
@@ -55,6 +35,15 @@ class CaracterizacionAsistente extends Model
      * Nota: la pestaña INSTRUCTIVO del mismo Excel describe el rango de "Adultos" como 29–59 y
      * "Mayores" como 60+, lo cual no coincide con esta fórmula real (que incluye la edad 60 en
      * "Adultos"). Se implementa la fórmula que efectivamente corre en la hoja, no el texto.
+     *
+     * Antes esto se guardaba en item25_grupo_etareo de esta misma tabla, calculado en un
+     * booted() hook al guardar. Desde que Parte 2 (ítems 20–32) pasó a ser por actividad
+     * (CaracterizacionSeguimiento) en vez de por ciudadano, un solo "grupo etáreo" por
+     * actividad ya no tiene sentido — distintos ciudadanos de la misma actividad pueden
+     * tener edades distintas — así que ya no se persiste en ningún lado: se calcula al
+     * vuelo, por fila, en el momento de renderizar el PDF/Excel, a partir del item15_edad
+     * propio de cada asistente. Se conserva público y estático aquí para que el código de
+     * render lo siga usando por fila.
      */
     public static function calcularGrupoEtareo(?int $edad): string
     {
@@ -76,11 +65,6 @@ class CaracterizacionAsistente extends Model
     public function actividad()
     {
         return $this->belongsTo(CaracterizacionActividad::class, 'actividad_id');
-    }
-
-    public function part2CompletadoPor()
-    {
-        return $this->belongsTo(User::class, 'part2_completado_por');
     }
 
     public function problematicas()

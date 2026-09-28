@@ -1,12 +1,13 @@
 <?php
 namespace App\Models;
 
+use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Asistente extends Model
 {
-    use HasFactory;
+    use HasFactory, Auditable;
     protected $table = 'asistentes';
     protected $fillable = ['reunion_id', 'usuario_id', 'nombre_completo', 'cargo', 'dependencia', 'email', 'telefono', 'firma_id', 'validado', 'observado_por', 'observacion', 'creado_via', 'ip_origen', 'user_agent'];
 

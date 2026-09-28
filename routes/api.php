@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\Caracterizacion\EstadisticasController;
 use App\Http\Controllers\Api\Caracterizacion\OpcionController;
 use App\Http\Controllers\Api\Caracterizacion\OrgController;
 use App\Http\Controllers\Api\Caracterizacion\PublicController as CaracterizacionPublicController;
+use App\Http\Controllers\Api\LogController;
 
 /*
 |--------------------------------------------------------------------------
@@ -67,11 +68,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/usuarios/{id}', [UserController::class, 'show']);
         Route::put('/usuarios/{id}', [UserController::class, 'update']);
         Route::delete('/usuarios/{id}', [UserController::class, 'destroy']);
+
+        // Auditoría — trazabilidad de todo el sistema (Reuniones + Caracterización),
+        // incluidas las propias acciones del administrador.
+        Route::get('/logs', [LogController::class, 'index']);
     });
 
     // ─── Caracterización de Ciudadanía — rutas autenticadas ────────────────────
     Route::prefix('caracterizacion')->group(function () {
         Route::get('/mi-perfil', [OrgController::class, 'miPerfil']);
+
+        // Listado mínimo de usuarios para el selector de "invitar colaborador" —
+        // a propósito no requiere es.admin, solo un perfil de caracterización activo.
+        Route::get('/usuarios-disponibles', [OrgController::class, 'usuariosDisponibles']);
 
         // Contratista/Secretaría/Administrador: cada uno ve lo suyo (scopeVisiblePara).
         Route::get('/actividades', [ActividadController::class, 'index']);
@@ -80,7 +89,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/actividades/{actividad}/finalizar', [ActividadController::class, 'finalizar']);
         Route::get('/actividades/{actividad}/pdf', [ActividadController::class, 'generarPdf']);
         Route::get('/actividades/{actividad}/excel', [ActividadController::class, 'generarExcel']);
-        Route::put('/actividades/{actividad}/asistentes/{asistente}/parte2', [ActividadController::class, 'completarParte2']);
+        Route::put('/actividades/{actividad}/parte2', [ActividadController::class, 'completarParte2']);
+
+        // Colaboradores — el creador de una actividad invita a otro usuario a
+        // ayudarle a diligenciar la Parte 2; el invitado acepta/rechaza y, si
+        // acepta, ve la actividad en "Actividades Compartidas Conmigo".
+        Route::post('/actividades/{actividad}/colaboradores', [ActividadController::class, 'invitarColaborador']);
+        Route::get('/mis-invitaciones', [ActividadController::class, 'misInvitaciones']);
+        Route::post('/colaboraciones/{colaborador}/responder', [ActividadController::class, 'responderInvitacion']);
+        Route::get('/mis-colaboraciones', [ActividadController::class, 'misColaboraciones']);
 
         // ─── Solo Administrador ─────────────────────────────────────────────
         Route::middleware('caracterizacion.rol:administrador')->group(function () {

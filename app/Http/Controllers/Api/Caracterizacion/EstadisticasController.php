@@ -56,12 +56,16 @@ class EstadisticasController extends Controller
             ->selectRaw("SUM(item10_etnico = 'Pueblo Rom o Gitano') as etnico_rom")
             ->selectRaw("SUM(item13_clasificacion_organizacion = 'Con Ánimo de Lucro') as organizacion_con_animo_lucro")
             ->selectRaw("SUM(item13_clasificacion_organizacion = 'Sin Ánimo de Lucro') as organizacion_sin_animo_lucro")
-            ->selectRaw("SUM(item25_grupo_etareo = 'Primera infancia') as grupo_primera_infancia")
-            ->selectRaw("SUM(item25_grupo_etareo = 'Infancia') as grupo_infancia")
-            ->selectRaw("SUM(item25_grupo_etareo = 'Adolescencia') as grupo_adolescencia")
-            ->selectRaw("SUM(item25_grupo_etareo = 'Jóvenes') as grupo_jovenes")
-            ->selectRaw("SUM(item25_grupo_etareo = 'Adultos') as grupo_adultos")
-            ->selectRaw("SUM(item25_grupo_etareo = 'Mayores') as grupo_mayores")
+            // item25_grupo_etareo ya no lo mantiene la app (Parte 2 pasó a ser por actividad, no
+            // por ciudadano — ver CaracterizacionSeguimiento): se recalcula aquí directamente a
+            // partir de item15_edad, con los mismos rangos de edad de
+            // CaracterizacionAsistente::calcularGrupoEtareo().
+            ->selectRaw('SUM(item15_edad BETWEEN 1 AND 5) as grupo_primera_infancia')
+            ->selectRaw('SUM(item15_edad BETWEEN 6 AND 11) as grupo_infancia')
+            ->selectRaw('SUM(item15_edad BETWEEN 12 AND 17) as grupo_adolescencia')
+            ->selectRaw('SUM(item15_edad BETWEEN 18 AND 28) as grupo_jovenes')
+            ->selectRaw('SUM(item15_edad BETWEEN 29 AND 60) as grupo_adultos')
+            ->selectRaw('SUM(item15_edad BETWEEN 61 AND 120) as grupo_mayores')
             ->selectRaw('COUNT(*) as total_poblacion_atendida')
             ->groupBy('caracterizacion_asistentes.item5_municipio')
             ->get()

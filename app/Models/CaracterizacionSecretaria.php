@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class CaracterizacionSecretaria extends Model
 {
-    use HasFactory;
+    use HasFactory, Auditable;
 
     protected $table = 'caracterizacion_secretarias';
     protected $fillable = ['nombre', 'activo'];

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\CaracterizacionDependencia;
 use App\Models\CaracterizacionPerfil;
 use App\Models\CaracterizacionSecretaria;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -85,6 +86,26 @@ class OrgController extends Controller
         $dependencia->update($validated);
 
         return response()->json($dependencia);
+    }
+
+    /**
+     * Listado mínimo de usuarios (id, nombre, email) para el selector de "invitar
+     * colaborador" de una actividad. A propósito NO exige es.admin (a diferencia de
+     * GET /api/usuarios): basta con tener un perfil de caracterización activo, para
+     * que un contratista normal también pueda invitar a alguien sin ser admin del
+     * sistema completo.
+     */
+    public function usuariosDisponibles(Request $request)
+    {
+        abort_unless(
+            $request->user()->caracterizacionPerfil()->where('activo', true)->exists(),
+            403,
+            'No autorizado.'
+        );
+
+        return response()->json(
+            User::select('id', 'nombre_completo', 'email')->orderBy('nombre_completo')->get()
+        );
     }
 
     // ─── Perfiles (asignación de rol dentro de Caracterización) ────────────

@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\Auditable;
 use Illuminate\Database\Eloquent\Model;
 
 class CaracterizacionAprobacion extends Model
 {
+    use Auditable;
+
     const UPDATED_AT = null;
 
     protected $table = 'caracterizacion_aprobaciones';
