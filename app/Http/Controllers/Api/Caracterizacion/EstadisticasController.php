@@ -35,7 +35,10 @@ class EstadisticasController extends Controller
                 $query->where('caracterizacion_actividades.secretaria_id', $request->integer('secretaria_id'));
             }
             if ($request->filled('dependencia_id')) {
-                $query->where('caracterizacion_actividades.dependencia_id', $request->integer('dependencia_id'));
+                // Admite uno o varios ids separados por coma (ej. "5,8,12") para el
+                // filtro múltiple del frontend, sin dejar de aceptar un solo id.
+                $ids = array_filter(explode(',', $request->string('dependencia_id')), fn ($id) => $id !== '');
+                $query->whereIn('caracterizacion_actividades.dependencia_id', $ids);
             }
             if ($request->filled('usuario_id')) {
                 $query->where('caracterizacion_actividades.creador_id', $request->integer('usuario_id'));

@@ -34,7 +34,10 @@ class ActividadController extends Controller
             $query->where('secretaria_id', $request->integer('secretaria_id'));
         }
         if ($request->filled('dependencia_id')) {
-            $query->where('dependencia_id', $request->integer('dependencia_id'));
+            // Admite uno o varios ids separados por coma (ej. "5,8,12") para el
+            // filtro múltiple del frontend, sin dejar de aceptar un solo id.
+            $ids = array_filter(explode(',', $request->string('dependencia_id')), fn ($id) => $id !== '');
+            $query->whereIn('dependencia_id', $ids);
         }
         if ($request->filled('creador_id')) {
             $query->where('creador_id', $request->integer('creador_id'));
