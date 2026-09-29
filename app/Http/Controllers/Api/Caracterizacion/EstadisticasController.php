@@ -20,6 +20,17 @@ class EstadisticasController extends Controller
         $aplicarFiltros = function ($query) use ($request) {
             $query->join('caracterizacion_actividades', 'caracterizacion_actividades.id', '=', 'caracterizacion_asistentes.actividad_id');
 
+            // Por defecto solo cuentan actividades ya APROBADAS: antes de este filtro,
+            // una actividad recién subida (pendiente) o incluso rechazada por el
+            // administrador ya sumaba en el dashboard como si fuera dato oficial,
+            // justo lo que el flujo de aprobación existe para evitar. Se permite
+            // overridear con ?estado_aprobacion= para el caso puntual en que un
+            // admin quiera revisar pendientes/rechazadas.
+            $query->where(
+                'caracterizacion_actividades.estado_aprobacion',
+                $request->filled('estado_aprobacion') ? $request->string('estado_aprobacion') : 'aprobada'
+            );
+
             if ($request->filled('secretaria_id')) {
                 $query->where('caracterizacion_actividades.secretaria_id', $request->integer('secretaria_id'));
             }

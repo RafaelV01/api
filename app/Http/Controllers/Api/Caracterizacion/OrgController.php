@@ -45,13 +45,39 @@ class OrgController extends Controller
     public function actualizarSecretaria(Request $request, CaracterizacionSecretaria $secretaria)
     {
         $validated = $request->validate([
-            'nombre' => ['sometimes', 'string', 'max:255', Rule::unique('caracterizacion_secretarias', 'nombre')->ignore($secretaria->id)],
+            'nombre' => ['sometimes', 'string', 'max:255', $this->noVacio(), Rule::unique('caracterizacion_secretarias', 'nombre')->ignore($secretaria->id)],
             'activo' => 'sometimes|boolean',
         ]);
 
         $secretaria->update($validated);
 
-        return response()->json($secretaria);
+        // Al desactivar la secretaría, sus dependencias se desactivan con ella —
+        // el diálogo de confirmación del frontend lo promete explícitamente, y antes
+        // no ocurría de verdad (seguían activas y asignables). Se recorre y guarda
+        // cada dependencia como modelo, no un update() en bloque, para que Auditable
+        // registre cada una individualmente.
+        if (array_key_exists('activo', $validated) && $validated['activo'] === false) {
+            foreach ($secretaria->dependencias as $dependencia) {
+                if ($dependencia->activo) {
+                    $dependencia->update(['activo' => false]);
+                }
+            }
+        }
+
+        return response()->json($secretaria->fresh('dependencias'));
+    }
+
+    /**
+     * Regla de validación reutilizable: rechaza vacío o solo espacios. `required`/
+     * `filled` no bastan porque PHP no considera vacía una cadena de solo espacios.
+     */
+    private function noVacio(): \Closure
+    {
+        return function (string $attribute, $value, \Closure $fail) {
+            if (trim((string) $value) === '') {
+                $fail('El campo no puede quedar vacío.');
+            }
+        };
     }
 
     // ─── Dependencias ───────────────────────────────────────────────────────
@@ -69,8 +95,13 @@ class OrgController extends Controller
     public function crearDependencia(Request $request)
     {
         $validated = $request->validate([
-            'secretaria_id' => 'required|exists:caracterizacion_secretarias,id',
-            'nombre' => 'required|string|max:255',
+            // Solo se puede crear bajo una secretaría activa; de lo contrario quedaba
+            // como una forma silenciosa de "reactivar" secretarías desactivadas.
+            'secretaria_id' => ['required', Rule::exists('caracterizacion_secretarias', 'id')->where('activo', true)],
+            'nombre' => [
+                'required', 'string', 'max:255', $this->noVacio(),
+                Rule::unique('caracterizacion_dependencias', 'nombre')->where('secretaria_id', $request->input('secretaria_id')),
+            ],
         ]);
 
         return response()->json(CaracterizacionDependencia::create($validated), 201);
@@ -79,7 +110,12 @@ class OrgController extends Controller
     public function actualizarDependencia(Request $request, CaracterizacionDependencia $dependencia)
     {
         $validated = $request->validate([
-            'nombre' => 'sometimes|string|max:255',
+            'nombre' => [
+                'sometimes', 'string', 'max:255', $this->noVacio(),
+                Rule::unique('caracterizacion_dependencias', 'nombre')
+                    ->where('secretaria_id', $dependencia->secretaria_id)
+                    ->ignore($dependencia->id),
+            ],
             'activo' => 'sometimes|boolean',
         ]);
 
@@ -103,8 +139,15 @@ class OrgController extends Controller
             'No autorizado.'
         );
 
+        // Acotado a usuarios con perfil de caracterización activo — no el directorio
+        // completo del sistema: quien invita a un colaborador para ayudar con la
+        // Parte 2 no necesita (ni debería) poder ver el correo de cualquier persona
+        // de la Gobernación, solo de quienes ya participan en Caracterización.
         return response()->json(
-            User::select('id', 'nombre_completo', 'email')->orderBy('nombre_completo')->get()
+            User::select('id', 'nombre_completo', 'email')
+                ->whereHas('caracterizacionPerfil', fn ($q) => $q->where('activo', true))
+                ->orderBy('nombre_completo')
+                ->get()
         );
     }
 
@@ -121,7 +164,7 @@ class OrgController extends Controller
         $validated = $request->validate([
             'usuario_id' => 'required|exists:usuarios,id|unique:caracterizacion_perfiles,usuario_id',
             'rol' => ['required', Rule::in(CaracterizacionPerfil::ROLES)],
-            'secretaria_id' => 'nullable|exists:caracterizacion_secretarias,id',
+            'secretaria_id' => 'nullable|exists:caracterizacion_secretarias,id|required_if:rol,secretaria',
             'dependencia_id' => 'nullable|exists:caracterizacion_dependencias,id|required_if:rol,contratista',
         ]);
 
@@ -132,8 +175,12 @@ class OrgController extends Controller
     {
         $validated = $request->validate([
             'rol' => ['sometimes', Rule::in(CaracterizacionPerfil::ROLES)],
-            'secretaria_id' => 'nullable|exists:caracterizacion_secretarias,id',
-            'dependencia_id' => 'nullable|exists:caracterizacion_dependencias,id',
+            // Mismas reglas required_if que asignarPerfil() — antes solo se exigían
+            // al crear, así que editar un perfil a rol=secretaria/contratista podía
+            // dejarlo sin secretaria_id/dependencia_id, bloqueado silenciosamente en
+            // scopeVisiblePara/store() sin ningún aviso al admin.
+            'secretaria_id' => 'nullable|exists:caracterizacion_secretarias,id|required_if:rol,secretaria',
+            'dependencia_id' => 'nullable|exists:caracterizacion_dependencias,id|required_if:rol,contratista',
             'activo' => 'sometimes|boolean',
         ]);
 

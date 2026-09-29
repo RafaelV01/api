@@ -77,7 +77,13 @@ class CaracterizacionActividad extends Model
     {
         $perfil = $user->caracterizacionPerfil;
 
-        if (!$perfil || $perfil->rol === CaracterizacionPerfil::ROL_ADMINISTRADOR) {
+        // Sin perfil de Caracterización (o perfil desactivado) = no ve nada, nunca
+        // "ve todo" — antes `!$perfil` caía en el mismo return que administrador.
+        if (!$perfil || !$perfil->activo) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        if ($perfil->rol === CaracterizacionPerfil::ROL_ADMINISTRADOR) {
             return $query;
         }
 

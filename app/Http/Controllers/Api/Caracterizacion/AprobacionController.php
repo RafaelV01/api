@@ -37,15 +37,25 @@ class AprobacionController extends Controller
 
         $estadoNuevo = $validated['accion'] === 'aprobado' ? 'aprobada' : 'rechazada';
 
+        // Se recorre y guarda cada actividad como modelo (no un update() de query
+        // builder) a propósito: solo así Eloquent dispara 'updating'/'updated' y el
+        // trait Auditable deja rastro individual de cada cambio de estado_aprobacion
+        // en logs_actividad — la acción más sensible del flujo, que antes quedaba
+        // fuera de la auditoría por completo. lockForUpdate() además cierra la
+        // ventana de carrera con otra aprobación/rechazo concurrente sobre el mismo
+        // conjunto, y el conteo reportado/auditado sale de las filas realmente
+        // recorridas, no de un COUNT(*) tomado antes del cambio.
         $afectadas = DB::transaction(function () use ($query, $estadoNuevo, $validated) {
-            $count = $query->count();
+            $actividades = $query->lockForUpdate()->get();
 
-            $query->update([
-                'estado_aprobacion' => $estadoNuevo,
-                'aprobado_por' => Auth::id(),
-                'fecha_aprobacion' => now(),
-                'observacion_aprobacion' => $validated['observacion'] ?? null,
-            ]);
+            foreach ($actividades as $actividad) {
+                $actividad->update([
+                    'estado_aprobacion' => $estadoNuevo,
+                    'aprobado_por' => Auth::id(),
+                    'fecha_aprobacion' => now(),
+                    'observacion_aprobacion' => $validated['observacion'] ?? null,
+                ]);
+            }
 
             CaracterizacionAprobacion::create([
                 'tipo_objetivo' => $validated['tipo_objetivo'],
@@ -53,10 +63,10 @@ class AprobacionController extends Controller
                 'accion' => $validated['accion'],
                 'actor_id' => Auth::id(),
                 'observacion' => $validated['observacion'] ?? null,
-                'actividades_afectadas' => $count,
+                'actividades_afectadas' => $actividades->count(),
             ]);
 
-            return $count;
+            return $actividades->count();
         });
 
         return response()->json([

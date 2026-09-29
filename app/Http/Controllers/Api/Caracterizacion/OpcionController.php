@@ -5,9 +5,22 @@ namespace App\Http\Controllers\Api\Caracterizacion;
 use App\Http\Controllers\Controller;
 use App\Models\CaracterizacionOpcion;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class OpcionController extends Controller
 {
+    /**
+     * Regla de validación reutilizable: rechaza vacío o solo espacios (`required`/
+     * `filled` no bastan porque PHP no considera vacía una cadena de solo espacios).
+     */
+    private function noVacio(): \Closure
+    {
+        return function (string $attribute, $value, \Closure $fail) {
+            if (trim((string) $value) === '') {
+                $fail('El campo no puede quedar vacío.');
+            }
+        };
+    }
     /**
      * Lectura pública (para cualquier usuario autenticado, incluido el ciudadano
      * anónimo en el formulario de autoregistro) de las opciones activas de una
@@ -41,7 +54,10 @@ class OpcionController extends Controller
         $validated = $request->validate([
             'categoria' => 'required|string|max:50',
             'grupo' => 'nullable|string|max:50',
-            'valor' => 'required|string|max:255',
+            'valor' => [
+                'required', 'string', 'max:255', $this->noVacio(),
+                Rule::unique('caracterizacion_opciones', 'valor')->where('categoria', $request->input('categoria')),
+            ],
             'orden' => 'nullable|integer',
             'activo' => 'nullable|boolean',
         ]);
@@ -54,7 +70,12 @@ class OpcionController extends Controller
         $validated = $request->validate([
             'categoria' => 'sometimes|string|max:50',
             'grupo' => 'nullable|string|max:50',
-            'valor' => 'sometimes|string|max:255',
+            'valor' => [
+                'sometimes', 'string', 'max:255', $this->noVacio(),
+                Rule::unique('caracterizacion_opciones', 'valor')
+                    ->where('categoria', $request->input('categoria', $opcion->categoria))
+                    ->ignore($opcion->id),
+            ],
             'orden' => 'sometimes|integer',
             'activo' => 'sometimes|boolean',
         ]);

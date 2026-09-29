@@ -147,7 +147,10 @@ class UserController extends Controller
         ]);
 
         if (!$validated['caracterizacion_rol']) {
-            $user->caracterizacionPerfil()->delete();
+            // ->delete() sobre la relación (query builder) no dispara el evento
+            // Eloquent 'deleted' — hay que borrar la instancia del modelo para que
+            // Auditable registre quién revocó el perfil y con qué datos previos.
+            $user->caracterizacionPerfil?->delete();
             return;
         }
 

@@ -54,9 +54,10 @@ trait Auditable
         try {
             $datosAntes = null;
             $datosDespues = null;
+            $ocultos = static::camposOcultosDeAuditoria($model);
 
             if ($accion === 'creado') {
-                $datosDespues = $model->getAttributes();
+                $datosDespues = static::redactar($model->getAttributes(), $ocultos);
             } elseif ($accion === 'actualizado') {
                 $cambios = $model->getChanges();
                 $original = $model->getOriginal();
@@ -66,9 +67,10 @@ trait Auditable
                     $datosAntes[$campo] = $original[$campo] ?? null;
                 }
 
-                $datosDespues = $cambios;
+                $datosAntes = static::redactar($datosAntes, $ocultos);
+                $datosDespues = static::redactar($cambios, $ocultos);
             } elseif ($accion === 'eliminado') {
-                $datosAntes = $model->getAttributes();
+                $datosAntes = static::redactar($model->getAttributes(), $ocultos);
             }
 
             LogActividad::create([
@@ -92,5 +94,40 @@ trait Auditable
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Campos que nunca deben quedar en texto plano dentro del log de auditoría:
+     * credenciales (password, remember_token) siempre, más cualquier campo cuyo
+     * nombre termine en _base64/_hash (firmas de firma_ciudadano_base64,
+     * firma_expositor_hash, etc.) — contenido biométrico o de integridad pesado
+     * que no aporta nada auditable y no debería duplicarse fuera de su tabla
+     * original. Un modelo puede sumar campos propios con `protected $auditOculto`.
+     */
+    protected static function camposOcultosDeAuditoria($model): array
+    {
+        $porDefecto = ['password', 'remember_token'];
+        $propios = property_exists($model, 'auditOculto') ? $model->auditOculto : [];
+
+        $porPatron = array_filter(array_keys($model->getAttributes()), function ($campo) {
+            return str_ends_with($campo, '_base64') || str_ends_with($campo, '_hash');
+        });
+
+        return array_values(array_unique(array_merge($porDefecto, $propios, $porPatron)));
+    }
+
+    protected static function redactar(?array $datos, array $ocultos): ?array
+    {
+        if ($datos === null) {
+            return null;
+        }
+
+        foreach ($ocultos as $campo) {
+            if (array_key_exists($campo, $datos)) {
+                $datos[$campo] = '[oculto]';
+            }
+        }
+
+        return $datos;
     }
 }

@@ -52,10 +52,18 @@ class PublicController extends Controller
         // Ubicación (item 7): el catálogo válido depende de Zona + Municipio.
         // Orocué, Paz de Ariporo y Sacamá distinguen Vereda de Resguardo/Corregimiento;
         // el resto de municipios solo maneja Resguardo/Corregimiento en zona rural.
+        // Se quitan tildes antes de comparar: el municipio puede venir del catálogo
+        // (sin tilde, ej. "OROCUE") o escrito a mano por el ciudadano con ortografía
+        // correcta ("Orocué"), y ambos deben calificar igual.
+        $sinTildes = fn (string $s) => strtoupper(str_replace(
+            ['Á', 'É', 'Í', 'Ó', 'Ú', 'á', 'é', 'í', 'ó', 'ú', 'Ñ', 'ñ'],
+            ['A', 'E', 'I', 'O', 'U', 'a', 'e', 'i', 'o', 'u', 'N', 'n'],
+            $s
+        ));
         $municipiosConVereda = ['OROCUE', 'PAZ DE ARIPORO', 'SACAMA'];
         $categoriaUbicacion = $request->input('item6_zona') === 'urbana'
             ? 'ubicacion_urbana'
-            : (in_array(strtoupper((string) $request->input('item5_municipio')), $municipiosConVereda, true)
+            : (in_array($sinTildes((string) $request->input('item5_municipio')), $municipiosConVereda, true)
                 ? 'ubicacion_rural_especial'
                 : 'ubicacion_rural_estandar');
 

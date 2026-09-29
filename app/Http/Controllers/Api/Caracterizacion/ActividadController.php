@@ -110,6 +110,14 @@ class ActividadController extends Controller
             $q->with(['problematicas', 'enfoques']);
         }]);
 
+        // La lista de colaboradores (incluye invitaciones pendientes/rechazadas con
+        // nombre) es información pensada solo para el creador — el frontend ya la
+        // oculta a otros, pero la API no debería entregarla igual a un colaborador
+        // aceptado que solo tiene acceso para ayudar con la Parte 2.
+        if (Auth::id() !== $actividad->creador_id) {
+            $actividad->unsetRelation('colaboradores');
+        }
+
         return response()->json($actividad);
     }
 
@@ -148,14 +156,21 @@ class ActividadController extends Controller
             'item32_fecha' => 'nullable|date',
         ]);
 
-        $seguimiento = CaracterizacionSeguimiento::updateOrCreate(
-            ['actividad_id' => $actividad->id],
-            [
-                ...$validated,
-                'completado_por' => Auth::id(),
-                'completado_en' => now(),
-            ]
-        );
+        $datos = [
+            ...$validated,
+            'completado_por' => Auth::id(),
+            'completado_en' => now(),
+        ];
+
+        try {
+            $seguimiento = CaracterizacionSeguimiento::updateOrCreate(['actividad_id' => $actividad->id], $datos);
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Colisión rara: el creador y un colaborador guardaron casi al mismo
+            // tiempo la primera vez y ambos intentaron crear la fila (unique en
+            // actividad_id). Para cuando llegamos aquí la otra ya existe, así que
+            // un segundo intento actualiza en vez de chocar de nuevo.
+            $seguimiento = CaracterizacionSeguimiento::updateOrCreate(['actividad_id' => $actividad->id], $datos);
+        }
 
         return response()->json($seguimiento);
     }
@@ -182,20 +197,45 @@ class ActividadController extends Controller
             ->where('usuario_id', $validated['usuario_id'])
             ->first();
 
-        if ($existente) {
+        // Un rechazo previo NO bloquea una reinvitación futura — solo un pendiente o
+        // ya aceptado deberían impedir invitar de nuevo. Antes cualquier fila
+        // existente (incluida 'rechazado') bloqueaba para siempre, sin que el
+        // creador tuviera forma de reintentar.
+        if ($existente && $existente->estado !== CaracterizacionColaborador::ESTADO_RECHAZADO) {
             return response()->json([
-                'message' => 'Este usuario ya fue invitado a esta actividad.',
+                'message' => $existente->estado === CaracterizacionColaborador::ESTADO_ACEPTADO
+                    ? 'Este usuario ya es colaborador de esta actividad.'
+                    : 'Este usuario ya tiene una invitación pendiente para esta actividad.',
                 'colaborador' => $existente->load('usuario'),
             ], 422);
         }
 
-        $colaborador = CaracterizacionColaborador::create([
-            'actividad_id' => $actividad->id,
-            'usuario_id' => $validated['usuario_id'],
-            'invitado_por' => Auth::id(),
-            'estado' => CaracterizacionColaborador::ESTADO_PENDIENTE,
-            'created_at' => now(),
-        ]);
+        try {
+            if ($existente) {
+                // Reutiliza la fila rechazada en vez de crear una nueva (la
+                // migración tiene unique(actividad_id, usuario_id)).
+                $existente->update([
+                    'invitado_por' => Auth::id(),
+                    'estado' => CaracterizacionColaborador::ESTADO_PENDIENTE,
+                    'created_at' => now(),
+                    'responded_at' => null,
+                ]);
+                $colaborador = $existente;
+            } else {
+                $colaborador = CaracterizacionColaborador::create([
+                    'actividad_id' => $actividad->id,
+                    'usuario_id' => $validated['usuario_id'],
+                    'invitado_por' => Auth::id(),
+                    'estado' => CaracterizacionColaborador::ESTADO_PENDIENTE,
+                    'created_at' => now(),
+                ]);
+            }
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Condición de carrera: otra invitación al mismo usuario se creó entre
+            // el chequeo de arriba y este create()/update() — se responde igual que
+            // el caso no concurrente, en vez de un 500 con el detalle SQL crudo.
+            return response()->json(['message' => 'Este usuario ya fue invitado a esta actividad.'], 422);
+        }
 
         return response()->json($colaborador->load('usuario'), 201);
     }
@@ -223,6 +263,15 @@ class ActividadController extends Controller
     public function responderInvitacion(Request $request, CaracterizacionColaborador $colaborador)
     {
         abort_unless(Auth::id() === $colaborador->usuario_id, 403, 'No autorizado para responder esta invitación.');
+
+        // Sin este chequeo, un usuario podía revertir unilateralmente su propio
+        // rechazo (o su aceptación) en cualquier momento posterior, recuperando
+        // acceso sin que el creador volviera a invitarlo.
+        if ($colaborador->estado !== CaracterizacionColaborador::ESTADO_PENDIENTE) {
+            return response()->json([
+                'message' => 'Esta invitación ya fue respondida. Si necesitas cambiar tu respuesta, pide al creador que te invite de nuevo.',
+            ], 422);
+        }
 
         $validated = $request->validate([
             'accion' => ['required', Rule::in([CaracterizacionColaborador::ESTADO_ACEPTADO, CaracterizacionColaborador::ESTADO_RECHAZADO])],
@@ -341,15 +390,15 @@ class ActividadController extends Controller
 
             $valoresParte1 = [
                 $index + 1,
-                $a->item1_nombre,
+                $this->sinFormula($a->item1_nombre),
                 $a->item2_tipo_documento,
-                $a->item3_numero_documento,
-                $a->item4_cargo_barrio_vereda,
-                $a->item5_municipio,
+                $this->sinFormula($a->item3_numero_documento),
+                $this->sinFormula($a->item4_cargo_barrio_vereda),
+                $this->sinFormula($a->item5_municipio),
                 $marca($a->item6_zona === 'urbana'),
                 $marca($a->item6_zona === 'rural'),
-                trim($a->item7_ubicacion_tipo.' '.$a->item7_ubicacion_detalle),
-                $a->item8_contacto_valor,
+                $this->sinFormula(trim($a->item7_ubicacion_tipo.' '.$a->item7_ubicacion_detalle)),
+                $this->sinFormula($a->item8_contacto_valor),
                 $marca($a->item9_genero === 'Mujer'),
                 $marca($a->item9_genero === 'Hombre'),
                 $marca($a->item9_genero === 'No Binario'),
@@ -471,6 +520,23 @@ class ActividadController extends Controller
             'Content-Disposition' => 'attachment; filename="'.$filename.'"',
             'Cache-Control' => 'no-cache, no-store, must-revalidate',
         ]);
+    }
+
+    /**
+     * Neutraliza inyección de fórmulas en Excel: los campos 1/3/4/5/7/8 los llena
+     * un ciudadano anónimo sin autenticación (PublicController::registrarCiudadano),
+     * y PhpSpreadsheet interpreta como fórmula cualquier valor que empiece con
+     * =, +, -, @ (o tab/retorno de carro) — ej. un nombre "=HYPERLINK(...)" quedaría
+     * como un enlace/fórmula viva al abrir el .xlsx. Se antepone una comilla simple,
+     * la misma mitigación estándar (OWASP) para inyección de fórmulas en CSV/Excel.
+     */
+    private function sinFormula(?string $valor): ?string
+    {
+        if ($valor === null || $valor === '') {
+            return $valor;
+        }
+
+        return preg_match('/^[=+\-@\t\r]/', $valor) ? "'".$valor : $valor;
     }
 
     /**
