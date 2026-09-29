@@ -56,7 +56,11 @@ class OrgController extends Controller
         // no ocurría de verdad (seguían activas y asignables). Se recorre y guarda
         // cada dependencia como modelo, no un update() en bloque, para que Auditable
         // registre cada una individualmente.
-        if (array_key_exists('activo', $validated) && $validated['activo'] === false) {
+        // La regla 'boolean' de Laravel solo verifica que el valor esté en
+        // [true,false,0,1,'0','1'] — no lo castea. Sin (bool) aquí, una petición
+        // que llegue como form-urlencoded/multipart con "activo=0" (string "0")
+        // no dispararía la cascada porque "0" === false es false en PHP.
+        if (array_key_exists('activo', $validated) && (bool) $validated['activo'] === false) {
             foreach ($secretaria->dependencias as $dependencia) {
                 if ($dependencia->activo) {
                     $dependencia->update(['activo' => false]);
