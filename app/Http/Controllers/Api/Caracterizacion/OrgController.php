@@ -134,6 +134,14 @@ class OrgController extends Controller
      * GET /api/usuarios): basta con tener un perfil de caracterización activo, para
      * que un contratista normal también pueda invitar a alguien sin ser admin del
      * sistema completo.
+     *
+     * Devuelve TODOS los usuarios (no solo quienes ya tienen perfil de
+     * caracterización): autorizarAcceso() en ActividadController no exige perfil
+     * para ser colaborador aceptado — cualquier usuario del sistema es un invitado
+     * válido — así que acotar este listado a "solo quienes ya participan" dejaba el
+     * selector vacío en la práctica (la inmensa mayoría de usuarios no tiene perfil
+     * asignado) y rompía la función real. Se mantiene acotado a id/nombre/email
+     * (no el registro completo) como mitigación razonable de exposición de datos.
      */
     public function usuariosDisponibles(Request $request)
     {
@@ -143,13 +151,8 @@ class OrgController extends Controller
             'No autorizado.'
         );
 
-        // Acotado a usuarios con perfil de caracterización activo — no el directorio
-        // completo del sistema: quien invita a un colaborador para ayudar con la
-        // Parte 2 no necesita (ni debería) poder ver el correo de cualquier persona
-        // de la Gobernación, solo de quienes ya participan en Caracterización.
         return response()->json(
             User::select('id', 'nombre_completo', 'email')
-                ->whereHas('caracterizacionPerfil', fn ($q) => $q->where('activo', true))
                 ->orderBy('nombre_completo')
                 ->get()
         );
