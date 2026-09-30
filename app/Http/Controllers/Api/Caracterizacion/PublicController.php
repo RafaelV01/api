@@ -50,22 +50,29 @@ class PublicController extends Controller
             ->where('activo', true);
 
         // Ubicación (item 7): el catálogo válido depende de Zona + Municipio.
-        // Orocué, Paz de Ariporo y Sacamá distinguen Vereda de Resguardo/Corregimiento;
-        // el resto de municipios solo maneja Resguardo/Corregimiento en zona rural.
-        // Se quitan tildes antes de comparar: el municipio puede venir del catálogo
-        // (sin tilde, ej. "OROCUE") o escrito a mano por el ciudadano con ortografía
-        // correcta ("Orocué"), y ambos deben calificar igual.
+        // "Resguardo" solo debe ofrecerse en municipios donde realmente existe un
+        // resguardo indígena (verificado: Caño Mochuelo en Hato Corozal y Paz de
+        // Ariporo; 8 resguardos Sáliba en Orocué; Guan'uwa Rawri'uwa U'wa en La
+        // Salina; Chaparral Barronegro U'wa repartido entre Sácama, Támara y Hato
+        // Corozal) — el resto de municipios de Casanare no tiene resguardo
+        // constituido. De esos, Orocué/Paz de Ariporo/Sácama además distinguen
+        // Vereda de Resguardo/Corregimiento. Se quitan tildes antes de comparar: el
+        // municipio puede venir del catálogo (sin tilde, ej. "OROCUE") o escrito a
+        // mano por el ciudadano con ortografía correcta ("Orocué").
         $sinTildes = fn (string $s) => strtoupper(str_replace(
             ['Á', 'É', 'Í', 'Ó', 'Ú', 'á', 'é', 'í', 'ó', 'ú', 'Ñ', 'ñ'],
             ['A', 'E', 'I', 'O', 'U', 'a', 'e', 'i', 'o', 'u', 'N', 'n'],
             $s
         ));
         $municipiosConVereda = ['OROCUE', 'PAZ DE ARIPORO', 'SACAMA'];
-        $categoriaUbicacion = $request->input('item6_zona') === 'urbana'
-            ? 'ubicacion_urbana'
-            : (in_array($sinTildes((string) $request->input('item5_municipio')), $municipiosConVereda, true)
-                ? 'ubicacion_rural_especial'
-                : 'ubicacion_rural_estandar');
+        $municipiosConResguardo = ['OROCUE', 'PAZ DE ARIPORO', 'SACAMA', 'HATO COROZAL', 'LA SALINA', 'TAMARA'];
+        $municipio = $sinTildes((string) $request->input('item5_municipio'));
+        $categoriaUbicacion = match (true) {
+            $request->input('item6_zona') === 'urbana' => 'ubicacion_urbana',
+            in_array($municipio, $municipiosConVereda, true) => 'ubicacion_rural_especial',
+            in_array($municipio, $municipiosConResguardo, true) => 'ubicacion_rural_con_resguardo',
+            default => 'ubicacion_rural_estandar',
+        };
 
         $validated = $request->validate([
             'item1_nombre' => 'required|string|max:255',
