@@ -62,6 +62,23 @@ class CaracterizacionAsistente extends Model
         };
     }
 
+    /**
+     * Solo el número del sector de la organización (item 12), sin el nombre: el catálogo
+     * guarda "7 - Educación" y el PDF/Excel solo muestran "7" para que quepa en la celda.
+     * Si el valor no empieza con un número (ej. una opción agregada a mano sin código),
+     * se devuelve tal cual.
+     */
+    public function getSectorCodigoAttribute(): ?string
+    {
+        $valor = $this->item12_sector_organizacion;
+
+        if ($valor === null || $valor === '') {
+            return null;
+        }
+
+        return preg_match('/^\s*(\d+)\s*-/', $valor, $m) ? $m[1] : $valor;
+    }
+
     public function actividad()
     {
         return $this->belongsTo(CaracterizacionActividad::class, 'actividad_id');

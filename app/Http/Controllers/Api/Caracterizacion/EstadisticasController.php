@@ -5,6 +5,10 @@ namespace App\Http\Controllers\Api\Caracterizacion;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class EstadisticasController extends Controller
 {
@@ -16,6 +20,11 @@ class EstadisticasController extends Controller
      * Filtros: secretaria_id, dependencia_id, usuario_id (creador), fecha_desde, fecha_hasta, municipio.
      */
     public function index(Request $request)
+    {
+        return response()->json($this->calcular($request));
+    }
+
+    private function calcular(Request $request): array
     {
         $aplicarFiltros = function ($query) use ($request) {
             $query->join('caracterizacion_actividades', 'caracterizacion_actividades.id', '=', 'caracterizacion_asistentes.actividad_id');
@@ -137,9 +146,166 @@ class EstadisticasController extends Controller
             ];
         })->values();
 
-        return response()->json([
+        // Indicadores extra para el dashboard (mismos filtros que la tabla principal).
+        $actividades = (int) ($aplicarFiltros(DB::table('caracterizacion_asistentes'))
+            ->selectRaw('COUNT(DISTINCT caracterizacion_asistentes.actividad_id) as n')->value('n') ?? 0);
+
+        $porMes = $aplicarFiltros(DB::table('caracterizacion_asistentes'))
+            ->selectRaw("DATE_FORMAT(caracterizacion_actividades.fecha, '%Y-%m') as mes")
+            ->selectRaw('COUNT(*) as total')
+            ->selectRaw('COUNT(DISTINCT caracterizacion_asistentes.actividad_id) as actividades')
+            ->groupBy('mes')->orderBy('mes')->get()
+            ->map(fn ($r) => ['mes' => $r->mes, 'total' => (int) $r->total, 'actividades' => (int) $r->actividades])->values();
+
+        $porSecretaria = $aplicarFiltros(DB::table('caracterizacion_asistentes'))
+            ->join('caracterizacion_secretarias', 'caracterizacion_secretarias.id', '=', 'caracterizacion_actividades.secretaria_id')
+            ->select('caracterizacion_secretarias.nombre as secretaria')
+            ->selectRaw('COUNT(*) as total')
+            ->groupBy('caracterizacion_secretarias.nombre')->orderByDesc('total')->get()
+            ->map(fn ($r) => ['secretaria' => $r->secretaria, 'total' => (int) $r->total])->values();
+
+        $porSector = $aplicarFiltros(DB::table('caracterizacion_asistentes'))
+            ->whereNotNull('caracterizacion_asistentes.item12_sector_organizacion')
+            ->select('caracterizacion_asistentes.item12_sector_organizacion as sector')
+            ->selectRaw('COUNT(*) as total')
+            ->groupBy('caracterizacion_asistentes.item12_sector_organizacion')->orderByDesc('total')->get()
+            ->map(fn ($r) => ['sector' => $r->sector, 'total' => (int) $r->total])->values();
+
+        return [
             'por_municipio' => $resultado,
             'total_general' => $resultado->sum('total_poblacion_atendida'),
-        ]);
+            'total_actividades' => $actividades,
+            'total_municipios' => $resultado->count(),
+            'por_mes' => $porMes,
+            'por_secretaria' => $porSecretaria,
+            'por_sector' => $porSector,
+        ];
+    }
+
+    private const ETIQUETAS = [
+        'zona' => ['urbana' => 'Urbana', 'rural' => 'Rural'],
+        'genero' => ['mujer' => 'Mujer', 'hombre' => 'Hombre', 'no_binario' => 'No Binario', 'transgenero' => 'Transgénero', 'lgbtiq_osigd' => 'LGBTIQ+ OSIGD'],
+        'etnico' => ['indigenas' => 'Indígenas', 'negras_afro_raizales_palenqueras' => 'Negras/Afro/Raizales/Palenqueras', 'pueblo_rom' => 'Pueblo Rom'],
+        'sector_organizacion' => ['con_animo_lucro' => 'Con Ánimo de Lucro', 'sin_animo_lucro' => 'Sin Ánimo de Lucro'],
+        'enfoque_diferencial' => ['discapacidad' => 'Discapacidad', 'cabeza_de_hogar' => 'Cabeza de Hogar', 'victimas_de_conflicto' => 'Víctimas de Conflicto', 'habitante_de_la_calle' => 'Habitante de la calle'],
+        'grupos_etareos' => ['primera_infancia' => 'Primera Infancia', 'infancia' => 'Infancia', 'adolescencia' => 'Adolescencia', 'jovenes' => 'Jóvenes', 'adultos' => 'Adultos', 'mayores' => 'Mayores'],
+    ];
+
+    private const TITULOS = [
+        'zona' => 'Zona', 'genero' => 'Enfoque de Género', 'etnico' => 'Enfoque Étnico',
+        'sector_organizacion' => 'Clasificación de la Organización',
+        'enfoque_diferencial' => 'Enfoque Diferencial/Poblacional', 'grupos_etareos' => 'Grupos Etáreos',
+    ];
+
+    /**
+     * Exporta el mismo cálculo del dashboard (con los mismos filtros) a un .xlsx de dos hojas:
+     * "Resumen" (indicadores y consolidado por variable) y "Por municipio" (cruce completo).
+     */
+    public function exportar(Request $request)
+    {
+        $d = $this->calcular($request);
+        $filas = collect($d['por_municipio']);
+        // Texto libre que escribió un ciudadano (municipio/sector): se neutraliza una posible
+        // fórmula inyectada antes de entrar a la celda (mismo criterio que ActividadController).
+        $seguro = fn ($v) => is_string($v) && preg_match('/^[=+\-@\t\r]/', $v) ? "'".$v : $v;
+
+        $libro = new Spreadsheet();
+        $hoja = $libro->getActiveSheet()->setTitle('Resumen');
+        $fila = 1;
+        $negrita = fn ($rango) => $hoja->getStyle($rango)->getFont()->setBold(true);
+        $encabezado = function ($rango) use ($hoja) {
+            $hoja->getStyle($rango)->getFont()->setBold(true);
+            $hoja->getStyle($rango)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2E8F0');
+        };
+
+        $hoja->setCellValue('A1', 'Estadísticas — Caracterización de Ciudadanía (FO-PDD-19)');
+        $negrita('A1');
+        $hoja->getStyle('A1')->getFont()->setSize(14);
+        $fila = 2;
+        $hoja->setCellValue("A{$fila}", 'Generado: '.now()->format('d/m/Y H:i'));
+        $fila += 2;
+
+        foreach ([
+            ['Personas caracterizadas', $d['total_general']],
+            ['Actividades aprobadas incluidas', $d['total_actividades']],
+            ['Municipios con registros', $d['total_municipios']],
+        ] as [$etiqueta, $valor]) {
+            $hoja->setCellValue("A{$fila}", $etiqueta);
+            $hoja->setCellValue("B{$fila}", $valor);
+            $negrita("A{$fila}");
+            $fila++;
+        }
+        $fila++;
+
+        $tabla = function (string $titulo, array $filasTabla) use ($hoja, &$fila, $encabezado) {
+            $hoja->setCellValue("A{$fila}", $titulo);
+            $hoja->setCellValue("B{$fila}", 'Total');
+            $encabezado("A{$fila}:B{$fila}");
+            $fila++;
+            foreach ($filasTabla as [$etiqueta, $total]) {
+                $hoja->setCellValue("A{$fila}", $etiqueta);
+                $hoja->setCellValue("B{$fila}", $total);
+                $fila++;
+            }
+            $fila++;
+        };
+
+        foreach (self::ETIQUETAS as $grupo => $etiquetas) {
+            $tabla(self::TITULOS[$grupo], collect($etiquetas)->map(
+                fn ($etiqueta, $clave) => [$etiqueta, (int) $filas->sum(fn ($f) => $f[$grupo][$clave] ?? 0)]
+            )->values()->all());
+        }
+
+        $tabla('Personas por mes', collect($d['por_mes'])->map(fn ($m) => [$m['mes'], $m['total']])->all());
+        $tabla('Personas por Secretaría', collect($d['por_secretaria'])->map(fn ($m) => [$seguro($m['secretaria']), $m['total']])->all());
+        $tabla('Organizaciones por Secretaría/Oficina (sector)', collect($d['por_sector'])->map(fn ($m) => [$seguro($m['sector']), $m['total']])->all());
+        $hoja->getColumnDimension('A')->setWidth(48);
+        $hoja->getColumnDimension('B')->setWidth(14);
+
+        // Hoja 2: cruce completo por municipio
+        $h2 = $libro->createSheet()->setTitle('Por municipio');
+        $cabecera = ['Municipio'];
+        foreach (self::ETIQUETAS as $grupo => $etiquetas) {
+            foreach ($etiquetas as $etiqueta) {
+                $cabecera[] = self::TITULOS[$grupo].' — '.$etiqueta;
+            }
+        }
+        $cabecera[] = 'Total';
+        $h2->fromArray($cabecera, null, 'A1');
+        $ultimaCol = Coordinate::stringFromColumnIndex(count($cabecera));
+        $h2->getStyle("A1:{$ultimaCol}1")->getFont()->setBold(true);
+        $h2->getStyle("A1:{$ultimaCol}1")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('E2E8F0');
+        $h2->getStyle("A1:{$ultimaCol}1")->getAlignment()->setWrapText(true);
+        $r = 2;
+        foreach ($filas as $f) {
+            $linea = [$seguro($f['municipio'])];
+            foreach (self::ETIQUETAS as $grupo => $etiquetas) {
+                foreach (array_keys($etiquetas) as $clave) {
+                    $linea[] = $f[$grupo][$clave] ?? 0;
+                }
+            }
+            $linea[] = $f['total_poblacion_atendida'];
+            $h2->fromArray($linea, null, "A{$r}");
+            $r++;
+        }
+        $totales = ['TOTAL'];
+        foreach (self::ETIQUETAS as $grupo => $etiquetas) {
+            foreach (array_keys($etiquetas) as $clave) {
+                $totales[] = (int) $filas->sum(fn ($f) => $f[$grupo][$clave] ?? 0);
+            }
+        }
+        $totales[] = $d['total_general'];
+        $h2->fromArray($totales, null, "A{$r}");
+        $h2->getStyle("A{$r}:{$ultimaCol}{$r}")->getFont()->setBold(true);
+        $h2->getColumnDimension('A')->setWidth(26);
+        $h2->freezePane('B2');
+        $libro->setActiveSheetIndex(0);
+
+        $tmp = tempnam(sys_get_temp_dir(), 'estad_').'.xlsx';
+        (new Xlsx($libro))->save($tmp);
+
+        return response()->download($tmp, 'estadisticas-caracterizacion-'.now()->format('Ymd-His').'.xlsx', [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
     }
 }

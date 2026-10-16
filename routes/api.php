@@ -84,6 +84,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Contratista/Secretaría/Administrador: cada uno ve lo suyo (scopeVisiblePara).
         Route::get('/actividades', [ActividadController::class, 'index']);
+        // Consolidado (todas las actividades visibles + filtros) en un solo Excel
+        Route::get('/consolidado/excel', [ActividadController::class, 'consolidadoExcel']);
         Route::post('/actividades', [ActividadController::class, 'store']);
         Route::get('/actividades/{actividad}', [ActividadController::class, 'show']);
         Route::post('/actividades/{actividad}/finalizar', [ActividadController::class, 'finalizar']);
@@ -123,6 +125,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/aprobaciones/resumen', [AprobacionController::class, 'resumen']);
 
             Route::get('/estadisticas', [EstadisticasController::class, 'index']);
+            Route::get('/estadisticas/exportar', [EstadisticasController::class, 'exportar']);
         });
     });
 });

@@ -8,7 +8,9 @@
         * { box-sizing: border-box; }
         body { margin: 0; padding: 0; font-family: 'Arial', 'Helvetica', sans-serif; font-size: 5pt; color: #000; }
 
-        .sheet { width: 768pt; margin: 2pt 12pt 8pt 12pt; }
+        /* Mismo ancho que la grilla ($gridW = 762.1pt) para que el borde derecho del bloque
+           TEMA/TIPO DE EVENTO quede alineado con el de la grilla (antes 768pt, ~6pt más ancho). */
+        .sheet { width: 762.1pt; margin: 2pt 14.9pt 8pt 14.9pt; }
         .page-break { page-break-before: always; }
 
         /* ---- Encabezado: logo + título ---- */
@@ -21,7 +23,7 @@
         .title-cell .sub { font-size: 5.6pt; line-height: 1.3; }
 
         /* ---- Bloque TEMA / FECHA / QUIEN DIRIGE ---- */
-        .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 2pt; }
+        .info-table { width: 765pt; margin-left: -0.85pt; border-collapse: collapse; table-layout: fixed; margin-top: 2pt; }
         .info-table td { border: 1pt solid #000; padding: 2pt 4pt; vertical-align: top; font-size: 7pt; }
         .info-table .lbl { font-weight: bold; white-space: nowrap; }
         .info-table .legal { font-size: 5.6pt; line-height: 1.35; font-weight: normal; }
@@ -87,7 +89,9 @@
     // se eliminaron del formulario; su ancho (11.0+18.4=29.4pt) se repartió entre las
     // columnas que quedaban más cortas de espacio para su título (Tipo/Número Documento,
     // ZONA, Ubicación, Institucional, Clasificación de la Organización).
-    $colW = [14.6, 119.3, 28.0, 54.1, 53.3, 60.0, 11.7, 14.9, 31.5, 55.4, 8.6, 8.6, 8.6, 8.7, 10.7, 11.3, 11.3, 11.3, 10.2, 9.5, 6.7, 6.7, 10.7, 10.7, 15.4, 15.5, 10.7, 10.7, 10.6, 10.7, 13.8, 7.1, 91.2];
+    // Sector (idx 23) pasó de 10.7 a 15.0pt (ahora solo lleva el número del sector, centrado)
+    // tomando ~2.1pt de cada columna de Con/Sin Ánimo de Lucro (idx 24/25, que solo llevan una X).
+    $colW = [14.6, 119.3, 28.0, 54.1, 53.3, 60.0, 11.7, 14.9, 31.5, 55.4, 8.6, 8.6, 8.6, 8.7, 10.7, 11.3, 11.3, 11.3, 10.2, 9.5, 6.7, 6.7, 10.7, 15.0, 13.25, 13.35, 10.7, 10.7, 10.6, 10.7, 13.8, 7.1, 91.2];
     $colX = [];
     $acc = 0.0;
     foreach ($colW as $w) { $colX[] = $acc; $acc += $w; }
@@ -118,7 +122,7 @@
         [23, 'SECTOR De La ORGANIZACIÓN (12)', true, false],
         [30, 'EDAD - grupo etário (15)', true, false],
         [31, 'Tamaño Grupo Familiar (16)', true, false],
-        [32, 'FIRMA (19)', false, true],
+        [32, 'FIRMA (19)', false, false],
     ];
 
     // ZONA: ocupa fila1+fila2 combinadas en una sola celda (sin divisor interno), igual que el PDF fuente.
@@ -131,7 +135,7 @@
         [10, 5, 'ENFOQUE DE GÉNERO (9)'],
         [15, 3, 'ENFOQUE ÉTNICO (10)'],
         [18, 5, "PROBLEMÁTICA<br>A ATENDER (11)"],
-        [24, 2, "CLASIFICACIÓN<br>DE LA<br>ORGANIZACIÓN<br>N.(13)"],
+        [24, 2, "CLASIFICA-<br>CIÓN DE LA<br>ORGANIZA-<br>CIÓN N.(13)"],
         [26, 4, "ENFOQUE<br>DIFERENCIAL/POB<br>LACIONAL (14)"],
     ];
 
@@ -187,7 +191,7 @@
     <table class="info-table">
         <colgroup>
             <col width="145.6pt">
-            <col width="530.8pt">
+            <col width="527.8pt">
             <col width="91.6pt">
         </colgroup>
         <tr>
@@ -339,7 +343,7 @@
                     $marca(in_array('Salud', $problematicas)),
                     $marca(in_array('Cultural', $problematicas)),
                     $marca(in_array('Educativa', $problematicas)),
-                    $a->item12_sector_organizacion,
+                    $a->sector_codigo,
                     $marca($a->item13_clasificacion_organizacion === 'Con Ánimo de Lucro'),
                     $marca($a->item13_clasificacion_organizacion === 'Sin Ánimo de Lucro'),
                     $marca(in_array('Discapacidad', $enfoques)),
@@ -351,8 +355,8 @@
                     null, // firma va aparte (imagen)
                 ] : array_merge([$numero], array_fill(0, 31, ''), [null]);
 
-                $leftAligned = [1, 4, 5, 8, 9, 23];
-                $centered = [0, 2, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29, 30, 31];
+                $leftAligned = [1, 4, 5, 8, 9];
+                $centered = [0, 2, 6, 7, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31];
             @endphp
 
             {{-- línea horizontal inferior de la fila --}}

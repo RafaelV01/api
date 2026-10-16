@@ -30,6 +30,16 @@ class ActividadController extends Controller
             ->withCount('asistentes')
             ->latest();
 
+        $this->aplicarFiltros($query, $request);
+
+        return response()->json($query->get());
+    }
+
+    /**
+     * Filtros compartidos por el listado (index) y por el consolidado descargable.
+     */
+    private function aplicarFiltros($query, Request $request): void
+    {
         if ($request->filled('secretaria_id')) {
             $query->where('secretaria_id', $request->integer('secretaria_id'));
         }
@@ -60,8 +70,6 @@ class ActividadController extends Controller
         if ($request->filled('fecha_hasta')) {
             $query->whereDate('fecha', '<=', $request->date('fecha_hasta'));
         }
-
-        return response()->json($query->get());
     }
 
     /**
@@ -305,6 +313,104 @@ class ActividadController extends Controller
     }
 
     /**
+     * Consolidado en un solo Excel de TODOS los listados (actividades + ciudadanos + seguimiento
+     * de Parte 2) que el usuario puede ver, con los mismos filtros del listado: por secretaría,
+     * dependencia, municipio, fechas, estado, etc., o todo si no se filtra. Cada fila es un
+     * ciudadano e incluye los datos de su actividad, para poder filtrar/pivotar en Excel.
+     */
+    public function consolidadoExcel(Request $request)
+    {
+        $query = CaracterizacionActividad::with([
+            'dependencia', 'secretaria', 'creador', 'seguimiento',
+            'asistentes.problematicas', 'asistentes.enfoques',
+        ])->visiblePara(Auth::user())->orderBy('fecha')->orderBy('id');
+
+        $this->aplicarFiltros($query, $request);
+        $actividades = $query->get();
+
+        $cabecera = [
+            'Código actividad', 'Tema', 'Fecha', 'Hora', 'Municipio de la actividad', 'Secretaría', 'Dependencia',
+            'Creador', 'Estado', 'Aprobación',
+            'N°', 'Nombres y Apellidos / Entidad', 'Tipo documento', 'Número documento', 'Cargo / Barrio / Vereda',
+            'Municipio', 'Zona', 'Ubicación (tipo)', 'Ubicación (detalle)', 'Contacto', 'Género', 'Enfoque étnico',
+            'Problemáticas', 'Sector de la organización', 'Clasificación de la organización', 'Enfoque diferencial',
+            'Edad', 'Grupo etáreo', 'Tamaño grupo familiar',
+            'Cód. DANE', 'Beneficio — Categoría', 'Beneficio — Bien/Servicio', 'Descripción del beneficio',
+            'Fecha del beneficio', 'Gestión/Inversión', 'Plan Desarrollo — Sector', 'Plan Desarrollo — Programa',
+            'Plan Desarrollo — Meta producto', 'Proyecto de inversión', 'ODS', 'DDHH', 'Pilares de paz',
+            'Política pública', 'Política MIPG', 'Total beneficiarios', 'Acto adm. — Tipo', 'Acto adm. — Número',
+            'Acto adm. — Fecha',
+        ];
+
+        $filas = [];
+        foreach ($actividades as $act) {
+            $seg = $act->seguimiento;
+            foreach ($act->asistentes as $i => $a) {
+                $filas[] = [
+                    $act->codigo, $act->tema, optional($act->fecha)->format('d/m/Y'), $act->hora, $act->municipio,
+                    $act->secretaria?->nombre, $act->dependencia?->nombre, $act->creador?->nombre_completo,
+                    $act->estado, $act->estado_aprobacion,
+                    $i + 1, $a->item1_nombre, $a->item2_tipo_documento, $a->item3_numero_documento,
+                    $a->item4_cargo_barrio_vereda, $a->item5_municipio, $a->item6_zona,
+                    $a->item7_ubicacion_tipo, $a->item7_ubicacion_detalle, $a->item8_contacto_valor,
+                    $a->item9_genero, $a->item10_etnico, $a->problematicas->pluck('valor')->implode(', '),
+                    $a->sector_codigo, $a->item13_clasificacion_organizacion, $a->enfoques->pluck('valor')->implode(', '),
+                    $a->item15_edad, CaracterizacionAsistente::calcularGrupoEtareo($a->item15_edad), $a->item16_tamano_grupo_familiar,
+                    $seg?->item20_codigo_dane, $seg?->item21_categoria, $seg?->item21_bien_servicio,
+                    $seg?->item22_descripcion_beneficio, optional($seg?->item23_fecha_beneficio)->format('d/m/Y'),
+                    $seg?->item24_gestion_inversion, $seg?->item26_sector, $seg?->item26_programa,
+                    $seg?->item26_meta_producto, $seg?->item27_nombre_proyecto, $seg?->item28_ods, $seg?->item28_ddhh,
+                    $seg?->item28_pilares_paz, $seg?->item29_politica_publica, $seg?->item30_politica_mipg,
+                    $seg?->item31_total_beneficiarios, $seg?->item32_acto_tipo, $seg?->item32_numero,
+                    optional($seg?->item32_fecha)->format('d/m/Y'),
+                ];
+            }
+        }
+
+        // Todo valor de texto pasa por sinFormula(): hay campos que escribe un ciudadano anónimo.
+        $filas = array_map(fn ($fila) => array_map(fn ($v) => is_string($v) ? $this->sinFormula($v) : $v, $fila), $filas);
+
+        $libro = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $hoja = $libro->getActiveSheet()->setTitle('Consolidado');
+        $hoja->fromArray($cabecera, null, 'A1');
+        if ($filas) {
+            $hoja->fromArray($filas, null, 'A2');
+        }
+        $ultima = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($cabecera));
+        $estiloCab = $hoja->getStyle("A1:{$ultima}1");
+        $estiloCab->getFont()->setBold(true);
+        $estiloCab->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('E2E8F0');
+        $estiloCab->getAlignment()->setWrapText(true);
+        foreach (range(1, count($cabecera)) as $col) {
+            $hoja->getColumnDimensionByColumn($col)->setWidth(18);
+        }
+        $hoja->freezePane('A2');
+        $hoja->setAutoFilter("A1:{$ultima}".max(2, count($filas) + 1));
+
+        // Hoja 2: una fila por actividad
+        $h2 = $libro->createSheet()->setTitle('Actividades');
+        $h2->fromArray(['Código', 'Tema', 'Fecha', 'Municipio', 'Secretaría', 'Dependencia', 'Creador', 'Estado', 'Aprobación', 'Ciudadanos', 'Parte 2 completa'], null, 'A1');
+        $h2->getStyle('A1:K1')->getFont()->setBold(true);
+        $r = 2;
+        foreach ($actividades as $act) {
+            $h2->fromArray(array_map(fn ($v) => is_string($v) ? $this->sinFormula($v) : $v, [
+                $act->codigo, $act->tema, optional($act->fecha)->format('d/m/Y'), $act->municipio,
+                $act->secretaria?->nombre, $act->dependencia?->nombre, $act->creador?->nombre_completo,
+                $act->estado, $act->estado_aprobacion, $act->asistentes->count(), $act->seguimiento ? 'Sí' : 'No',
+            ]), null, "A{$r}");
+            $r++;
+        }
+        $libro->setActiveSheetIndex(0);
+
+        $tmp = tempnam(sys_get_temp_dir(), 'consol_').'.xlsx';
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($libro))->save($tmp);
+
+        return response()->download($tmp, 'consolidado-caracterizacion-'.now()->format('Ymd-His').'.xlsx', [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
+    }
+
+    /**
      * Cierra la actividad, impidiendo nuevos autoregistros de ciudadanos.
      */
     public function finalizar(CaracterizacionActividad $actividad)
@@ -415,7 +521,7 @@ class ActividadController extends Controller
                 $marca(in_array('Salud', $problematicas)),
                 $marca(in_array('Cultural', $problematicas)),
                 $marca(in_array('Educativa', $problematicas)),
-                $a->item12_sector_organizacion,
+                $a->sector_codigo,
                 $marca($a->item13_clasificacion_organizacion === 'Con Ánimo de Lucro'),
                 $marca($a->item13_clasificacion_organizacion === 'Sin Ánimo de Lucro'),
                 $marca(in_array('Discapacidad', $enfoques)),

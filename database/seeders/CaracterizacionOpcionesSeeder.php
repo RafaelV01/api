@@ -41,11 +41,36 @@ class CaracterizacionOpcionesSeeder extends Seeder
         $this->sembrar('contacto_tipo', ['Celular']);
         CaracterizacionOpcion::where('categoria', 'contacto_tipo')->where('valor', 'Teléfono')->update(['activo' => false]);
 
-        // Sector de la Organización (item 12): antes texto libre, ahora catálogo con código.
-        $this->sembrar('sector_organizacion', [
-            '1 - Educación', '2 - Cultura', '3 - Ambiental', '4 - Salud',
-            '5 - Infraestructura', '6 - Vivienda', '7 - Gobierno', '8 - Institucional',
-        ]);
+        // Sector de la Organización (item 12): las Secretarías/Oficinas de la Gobernación con
+        // la numeración del listado "proyectos financiados con recursos propios y del
+        // SGP.xlsx" (columna SECRETARIA/OFICINA). El formato "N - Nombre" importa: el
+        // PDF/Excel exportan solo el número (ver CaracterizacionAsistente::sector_codigo).
+        $sectores = [
+            '1 - Dirección Departamental de Cultura', '2 - Secretaría General',
+            '3 - Secretaría de Hacienda', '4 - Secretaría de Gobierno, Convivencia y Seguridad Ciudadana',
+            '5 - Secretaría de Infraestructura', '6 - Secretaría de Integración, Desarrollo Social y Mujer',
+            '7 - Secretaría de Educación', '8 - Secretaría de Salud',
+            '9 - Secretaría de Agricultura, Ganadería y Medio Ambiente',
+            '10 - Departamento Administrativo de Planeación',
+        ];
+        $this->sembrar('sector_organizacion', $sectores);
+
+        // Catálogo anterior de 8 sectores (numeración distinta): se desactiva, no se borra,
+        // y los registros ya guardados con un equivalente claro se pasan al nuevo número
+        // para que el código exportado no apunte a otra secretaría.
+        $sectoresViejos = [
+            '1 - Educación' => '7 - Secretaría de Educación', '2 - Cultura' => '1 - Dirección Departamental de Cultura',
+            '3 - Ambiental' => '9 - Secretaría de Agricultura, Ganadería y Medio Ambiente', '4 - Salud' => '8 - Secretaría de Salud',
+            '5 - Infraestructura' => '5 - Secretaría de Infraestructura', '6 - Vivienda' => null,
+            '7 - Gobierno' => '4 - Secretaría de Gobierno, Convivencia y Seguridad Ciudadana', '8 - Institucional' => null,
+        ];
+        foreach ($sectoresViejos as $viejo => $nuevo) {
+            if ($nuevo) {
+                \App\Models\CaracterizacionAsistente::where('item12_sector_organizacion', $viejo)
+                    ->update(['item12_sector_organizacion' => $nuevo]);
+            }
+            CaracterizacionOpcion::where('categoria', 'sector_organizacion')->where('valor', $viejo)->update(['activo' => false]);
+        }
 
         $this->sembrar('genero', ['Mujer', 'Hombre', 'No Binario', 'Transgénero', 'LGBTIQ+ OSIGD']);
 
