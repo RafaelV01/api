@@ -92,7 +92,7 @@ class ActividadController extends Controller
             'tema' => 'required|string|max:255',
             'fecha' => 'required|date',
             'hora' => 'required|date_format:H:i',
-            'quien_dirige_expone' => 'required|string|max:255',
+            'quien_dirige_expone' => ['required', 'string', 'max:255', 'regex:/^[\p{L}][\p{L} .,\'\-()]*$/u'],
             'firma_expositor_base64' => 'nullable|string',
             'firma_expositor_hash' => 'nullable|string|size:64',
             'municipio' => ['required', 'string', Rule::exists('caracterizacion_opciones', 'valor')->where('categoria', 'municipio')],
@@ -163,7 +163,7 @@ class ActividadController extends Controller
             'item30_politica_mipg' => ['nullable', 'string', $opcion('politica_mipg')],
             'item31_total_beneficiarios' => 'nullable|integer|min:0',
             'item32_acto_tipo' => ['nullable', 'string', $opcion('acto_tipo')],
-            'item32_numero' => 'nullable|string|max:50',
+            'item32_numero' => ['nullable', 'string', 'max:50', 'regex:/^[\p{L}\p{N}][\p{L}\p{N} .\-\/]*$/u'],
             'item32_fecha' => 'nullable|date',
         ]);
 
@@ -313,10 +313,11 @@ class ActividadController extends Controller
     }
 
     /**
-     * Consolidado en un solo Excel de TODOS los listados (actividades + ciudadanos + seguimiento
-     * de Parte 2) que el usuario puede ver, con los mismos filtros del listado: por secretaría,
-     * dependencia, municipio, fechas, estado, etc., o todo si no se filtra. Cada fila es un
-     * ciudadano e incluye los datos de su actividad, para poder filtrar/pivotar en Excel.
+     * Consolidado de TODOS los listados que el usuario puede ver (con los mismos filtros del
+     * listado: secretaría, dependencia, municipio, fechas, estado...; sin filtros = todo) en el
+     * MISMO formato oficial FO-PDD-19 que el Excel de una actividad: la plantilla con los
+     * ciudadanos de cada actividad apilados uno debajo del otro (numeración continua, firma y
+     * Parte 2 de su actividad en cada fila). Una segunda hoja índice lista las actividades.
      */
     public function consolidadoExcel(Request $request)
     {
@@ -328,86 +329,85 @@ class ActividadController extends Controller
         $this->aplicarFiltros($query, $request);
         $actividades = $query->get();
 
-        $cabecera = [
-            'Código actividad', 'Tema', 'Fecha', 'Hora', 'Municipio de la actividad', 'Secretaría', 'Dependencia',
-            'Creador', 'Estado', 'Aprobación',
-            'N°', 'Nombres y Apellidos / Entidad', 'Tipo documento', 'Número documento', 'Cargo / Barrio / Vereda',
-            'Municipio', 'Zona', 'Ubicación (tipo)', 'Ubicación (detalle)', 'Contacto', 'Género', 'Enfoque étnico',
-            'Problemáticas', 'Sector de la organización', 'Clasificación de la organización', 'Enfoque diferencial',
-            'Edad', 'Grupo etáreo', 'Tamaño grupo familiar',
-            'Cód. DANE', 'Beneficio — Categoría', 'Beneficio — Bien/Servicio', 'Descripción del beneficio',
-            'Fecha del beneficio', 'Gestión/Inversión', 'Plan Desarrollo — Sector', 'Plan Desarrollo — Programa',
-            'Plan Desarrollo — Meta producto', 'Proyecto de inversión', 'ODS', 'DDHH', 'Pilares de paz',
-            'Política pública', 'Política MIPG', 'Total beneficiarios', 'Acto adm. — Tipo', 'Acto adm. — Número',
-            'Acto adm. — Fecha',
-        ];
+        $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load(resource_path('templates/FO-PDD-19.xlsx'));
+        $sheet = $spreadsheet->getSheetByName('FO-PDD-19');
 
-        $filas = [];
+        // Encabezado genérico del consolidado (no es de una actividad en particular).
+        $sheet->setCellValue('C1', 'CONSOLIDADO — '.$this->describirAlcance($request));
+        $sheet->setCellValue('C2', now()->format('d/m/Y'));
+        $sheet->setCellValue('Q2', now()->format('h:i A'));
+        $sheet->setCellValue('A3', 'CONSOLIDADO DE LISTADOS DE CARACTERIZACIÓN — '.$actividades->count()
+            .' actividad(es)          FIRMA: ______________          MUNICIPIO: Varios');
+        $sheet->setCellValue('W3', 'Casanare');
+
+        $items = [];
+        $indice = [];
+        $n = 0;
         foreach ($actividades as $act) {
-            $seg = $act->seguimiento;
-            foreach ($act->asistentes as $i => $a) {
-                $filas[] = [
-                    $act->codigo, $act->tema, optional($act->fecha)->format('d/m/Y'), $act->hora, $act->municipio,
-                    $act->secretaria?->nombre, $act->dependencia?->nombre, $act->creador?->nombre_completo,
-                    $act->estado, $act->estado_aprobacion,
-                    $i + 1, $a->item1_nombre, $a->item2_tipo_documento, $a->item3_numero_documento,
-                    $a->item4_cargo_barrio_vereda, $a->item5_municipio, $a->item6_zona,
-                    $a->item7_ubicacion_tipo, $a->item7_ubicacion_detalle, $a->item8_contacto_valor,
-                    $a->item9_genero, $a->item10_etnico, $a->problematicas->pluck('valor')->implode(', '),
-                    $a->sector_codigo, $a->item13_clasificacion_organizacion, $a->enfoques->pluck('valor')->implode(', '),
-                    $a->item15_edad, CaracterizacionAsistente::calcularGrupoEtareo($a->item15_edad), $a->item16_tamano_grupo_familiar,
-                    $seg?->item20_codigo_dane, $seg?->item21_categoria, $seg?->item21_bien_servicio,
-                    $seg?->item22_descripcion_beneficio, optional($seg?->item23_fecha_beneficio)->format('d/m/Y'),
-                    $seg?->item24_gestion_inversion, $seg?->item26_sector, $seg?->item26_programa,
-                    $seg?->item26_meta_producto, $seg?->item27_nombre_proyecto, $seg?->item28_ods, $seg?->item28_ddhh,
-                    $seg?->item28_pilares_paz, $seg?->item29_politica_publica, $seg?->item30_politica_mipg,
-                    $seg?->item31_total_beneficiarios, $seg?->item32_acto_tipo, $seg?->item32_numero,
-                    optional($seg?->item32_fecha)->format('d/m/Y'),
-                ];
+            $desde = $n + 1;
+            foreach ($act->asistentes as $a) {
+                $items[] = ['a' => $a, 'seg' => $act->seguimiento, 'n' => ++$n];
             }
-        }
-
-        // Todo valor de texto pasa por sinFormula(): hay campos que escribe un ciudadano anónimo.
-        $filas = array_map(fn ($fila) => array_map(fn ($v) => is_string($v) ? $this->sinFormula($v) : $v, $fila), $filas);
-
-        $libro = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
-        $hoja = $libro->getActiveSheet()->setTitle('Consolidado');
-        $hoja->fromArray($cabecera, null, 'A1');
-        if ($filas) {
-            $hoja->fromArray($filas, null, 'A2');
-        }
-        $ultima = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex(count($cabecera));
-        $estiloCab = $hoja->getStyle("A1:{$ultima}1");
-        $estiloCab->getFont()->setBold(true);
-        $estiloCab->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setRGB('E2E8F0');
-        $estiloCab->getAlignment()->setWrapText(true);
-        foreach (range(1, count($cabecera)) as $col) {
-            $hoja->getColumnDimensionByColumn($col)->setWidth(18);
-        }
-        $hoja->freezePane('A2');
-        $hoja->setAutoFilter("A1:{$ultima}".max(2, count($filas) + 1));
-
-        // Hoja 2: una fila por actividad
-        $h2 = $libro->createSheet()->setTitle('Actividades');
-        $h2->fromArray(['Código', 'Tema', 'Fecha', 'Municipio', 'Secretaría', 'Dependencia', 'Creador', 'Estado', 'Aprobación', 'Ciudadanos', 'Parte 2 completa'], null, 'A1');
-        $h2->getStyle('A1:K1')->getFont()->setBold(true);
-        $r = 2;
-        foreach ($actividades as $act) {
-            $h2->fromArray(array_map(fn ($v) => is_string($v) ? $this->sinFormula($v) : $v, [
+            $indice[] = [
                 $act->codigo, $act->tema, optional($act->fecha)->format('d/m/Y'), $act->municipio,
                 $act->secretaria?->nombre, $act->dependencia?->nombre, $act->creador?->nombre_completo,
-                $act->estado, $act->estado_aprobacion, $act->asistentes->count(), $act->seguimiento ? 'Sí' : 'No',
-            ]), null, "A{$r}");
-            $r++;
+                $act->estado, $act->estado_aprobacion, $act->asistentes->count(),
+                $act->asistentes->count() ? "{$desde} a {$n}" : '—', $act->seguimiento ? 'Sí' : 'No',
+            ];
         }
-        $libro->setActiveSheetIndex(0);
 
-        $tmp = tempnam(sys_get_temp_dir(), 'consol_').'.xlsx';
-        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($libro))->save($tmp);
+        $archivosTemporales = [];
+        $this->volcarFilasExcel($sheet, $items, 8, $archivosTemporales, true);
 
-        return response()->download($tmp, 'consolidado-caracterizacion-'.now()->format('Ymd-His').'.xlsx', [
+        // Hoja índice: qué actividad aporta cada tramo de filas del consolidado.
+        $h2 = $spreadsheet->createSheet()->setTitle('Actividades incluidas');
+        $h2->fromArray(['Código', 'Tema', 'Fecha', 'Municipio', 'Secretaría', 'Dependencia', 'Creador', 'Estado', 'Aprobación', 'Ciudadanos', 'N° en el consolidado', 'Parte 2 completa'], null, 'A1');
+        $h2->getStyle('A1:L1')->getFont()->setBold(true);
+        foreach ($indice as $i => $linea) {
+            $h2->fromArray(array_map(fn ($v) => is_string($v) ? $this->sinFormula($v) : $v, $linea), null, 'A'.($i + 2));
+        }
+        foreach (range('A', 'L') as $col) {
+            $h2->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        $spreadsheet->setActiveSheetIndex($spreadsheet->getIndex($sheet));
+
+        $tmp = tempnam(sys_get_temp_dir(), 'consol_');
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet))->save($tmp);
+        $contenido = file_get_contents($tmp);
+        unlink($tmp);
+        foreach ($archivosTemporales as $img) {
+            @unlink($img);
+        }
+
+        return response($contenido, 200, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ])->deleteFileAfterSend(true);
+            'Content-Disposition' => 'attachment; filename="consolidado-caracterizacion-'.now()->format('Ymd-His').'.xlsx"',
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+        ]);
+    }
+
+    /**
+     * Texto corto del alcance del consolidado según los filtros aplicados (para el encabezado).
+     */
+    private function describirAlcance(Request $request): string
+    {
+        $partes = [];
+        if ($request->filled('secretaria_id')) {
+            $partes[] = 'Secretaría: '.(\App\Models\CaracterizacionSecretaria::find($request->integer('secretaria_id'))?->nombre ?? '—');
+        }
+        if ($request->filled('dependencia_id')) {
+            $ids = array_filter(explode(',', $request->string('dependencia_id')), fn ($id) => $id !== '');
+            $partes[] = 'Dependencia(s): '.\App\Models\CaracterizacionDependencia::whereIn('id', $ids)->pluck('nombre')->implode(', ');
+        }
+        if ($request->filled('municipio')) {
+            $partes[] = 'Municipio: '.$request->string('municipio');
+        }
+        if ($request->filled('fecha_desde') || $request->filled('fecha_hasta')) {
+            $partes[] = 'Fechas: '.($request->input('fecha_desde') ?: '…').' a '.($request->input('fecha_hasta') ?: '…');
+        }
+
+        return $partes ? implode(' · ', $partes) : 'Todas las secretarías y dependencias';
     }
 
     /**
@@ -484,21 +484,61 @@ class ActividadController extends Controller
         $sheet->setCellValue('AI4', implode("\n", $lineasAI4));
 
         // ── Filas de datos (empiezan en la fila 8, igual que en el formato original) ──
+        $items = $actividad->asistentes->values()
+            ->map(fn ($a, $i) => ['a' => $a, 'seg' => $seguimiento, 'n' => $i + 1])->all();
+        $archivosTemporales = [];
+        $this->volcarFilasExcel($sheet, $items, 8, $archivosTemporales);
+
+        // Las demás hojas (INSTRUCTIVO, ACTIVIDAD, PROYECTO) del formato original se
+        // conservan tal cual — solo se activa la hoja de datos al abrir el archivo.
+        $spreadsheet->setActiveSheetIndex($spreadsheet->getIndex($sheet));
+
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+        $filename = 'caracterizacion-'.$actividad->codigo.'.xlsx';
+        $tmpPath = tempnam(sys_get_temp_dir(), 'caract_xlsx_');
+        $writer->save($tmpPath);
+        $contents = file_get_contents($tmpPath);
+        unlink($tmpPath);
+        foreach ($archivosTemporales as $tmpImg) {
+            @unlink($tmpImg);
+        }
+
+        return response($contents, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+        ]);
+    }
+
+    /**
+     * Escribe filas de ciudadanos (Parte 1 + Parte 2 de su actividad + firma) sobre la hoja
+     * "FO-PDD-19" de la plantilla oficial, empezando en $fila. Lo usan el Excel de una actividad
+     * y el consolidado (que apila las filas de varias actividades en el mismo formato).
+     *
+     * @param  array<int, array{a: CaracterizacionAsistente, seg: ?CaracterizacionSeguimiento, n: int}>  $items
+     * @return int  la siguiente fila libre
+     */
+    private function volcarFilasExcel($sheet, array $items, int $fila, array &$archivosTemporales, bool $copiarEstilo = false): int
+    {
         // AG (Canal de Comunicación) y AH (Idiomas) se dejan sin escribir: esos ítems
         // (17 y 18) se eliminaron del formulario, pero la plantilla original conserva
         // esas columnas físicas para no alterar su estructura.
         $colsParte1 = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AD', 'AE', 'AF', 'AI'];
         $colsParte2 = ['AJ', 'AK', 'AL', 'AM', 'AN', 'AO', 'AP', 'AQ', 'AR', 'AS', 'AT', 'AU', 'AV', 'AW', 'AX', 'AY', 'AZ', 'BA', 'BB', 'BC'];
 
-        $fila = 8;
-        $archivosTemporales = [];
-        foreach ($actividad->asistentes as $index => $a) {
+        foreach ($items as ['a' => $a, 'seg' => $seguimiento, 'n' => $numero]) {
+            if ($copiarEstilo && $fila > 8) {
+                // La plantilla solo trae formateadas unas pocas filas: en el consolidado cada fila
+                // nueva copia el estilo (bordes, alineación) y la altura de la primera fila de datos.
+                $sheet->duplicateStyle($sheet->getStyle('A8:BC8'), "A{$fila}:BC{$fila}");
+                $sheet->getRowDimension($fila)->setRowHeight($sheet->getRowDimension(8)->getRowHeight());
+            }
             $problematicas = $a->problematicas->pluck('valor')->all();
             $enfoques = $a->enfoques->pluck('valor')->all();
             $marca = fn (bool $cond) => $cond ? 'X' : null;
 
             $valoresParte1 = [
-                $index + 1,
+                $numero,
                 $this->sinFormula($a->item1_nombre),
                 $a->item2_tipo_documento,
                 $this->sinFormula($a->item3_numero_documento),
@@ -521,7 +561,7 @@ class ActividadController extends Controller
                 $marca(in_array('Salud', $problematicas)),
                 $marca(in_array('Cultural', $problematicas)),
                 $marca(in_array('Educativa', $problematicas)),
-                $a->sector_codigo,
+                $a->sector_codigo ? $a->sector_codigo.($a->sector_sigla ? "\n".$a->sector_sigla : '') : null,
                 $marca($a->item13_clasificacion_organizacion === 'Con Ánimo de Lucro'),
                 $marca($a->item13_clasificacion_organizacion === 'Sin Ánimo de Lucro'),
                 $marca(in_array('Discapacidad', $enfoques)),
@@ -537,7 +577,12 @@ class ActividadController extends Controller
                     $sheet->setCellValue("{$col}{$fila}", $valoresParte1[$i]);
                 }
             }
+            // El sector lleva el número y, en una segunda línea, la sigla: se activa el ajuste de texto.
+            $sheet->getStyle("X{$fila}")->getAlignment()->setWrapText(true);
 
+            // Una firma ilegible (imagen dañada) no debe tumbar toda la exportación — sobre todo en el
+            // consolidado, con cientos de filas: se omite esa imagen y se registra el aviso.
+            try {
             if ($a->firma_ciudadano_base64 && str_contains($a->firma_ciudadano_base64, ',')) {
                 [, $base64Data] = explode(',', $a->firma_ciudadano_base64, 2);
                 $binario = base64_decode($base64Data);
@@ -575,6 +620,10 @@ class ActividadController extends Controller
                 }
             }
 
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Excel: no se pudo incrustar la firma del asistente '.$a->id.': '.$e->getMessage());
+            }
+
             // Parte 2 (ítems 20–32) ahora vive una sola vez por actividad (CaracterizacionSeguimiento),
             // así que el mismo valor se repite en cada fila de ciudadano — igual que el formato físico
             // repite los datos del proyecto/beneficio en cada fila. La única excepción es el grupo
@@ -610,25 +659,7 @@ class ActividadController extends Controller
             $fila++;
         }
 
-        // Las demás hojas (INSTRUCTIVO, ACTIVIDAD, PROYECTO) del formato original se
-        // conservan tal cual — solo se activa la hoja de datos al abrir el archivo.
-        $spreadsheet->setActiveSheetIndex($spreadsheet->getIndex($sheet));
-
-        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
-        $filename = 'caracterizacion-'.$actividad->codigo.'.xlsx';
-        $tmpPath = tempnam(sys_get_temp_dir(), 'caract_xlsx_');
-        $writer->save($tmpPath);
-        $contents = file_get_contents($tmpPath);
-        unlink($tmpPath);
-        foreach ($archivosTemporales as $tmpImg) {
-            @unlink($tmpImg);
-        }
-
-        return response($contents, 200, [
-            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
-            'Cache-Control' => 'no-cache, no-store, must-revalidate',
-        ]);
+        return $fila;
     }
 
     /**

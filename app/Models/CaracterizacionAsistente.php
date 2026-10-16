@@ -79,6 +79,17 @@ class CaracterizacionAsistente extends Model
         return preg_match('/^\s*(\d+)\s*-/', $valor, $m) ? $m[1] : $valor;
     }
 
+    /**
+     * Sigla (2 a 5 letras) del sector, si el valor del catálogo la trae al final entre
+     * paréntesis: "7 - Secretaría de Educación (SED)" → "SED". Null si no tiene.
+     */
+    public function getSectorSiglaAttribute(): ?string
+    {
+        $valor = $this->item12_sector_organizacion;
+
+        return $valor && preg_match('/\(([\p{L}]{2,5})\)\s*$/u', $valor, $m) ? mb_strtoupper($m[1]) : null;
+    }
+
     public function actividad()
     {
         return $this->belongsTo(CaracterizacionActividad::class, 'actividad_id');

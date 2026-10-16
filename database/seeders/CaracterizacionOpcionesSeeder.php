@@ -43,26 +43,36 @@ class CaracterizacionOpcionesSeeder extends Seeder
 
         // Sector de la Organización (item 12): las Secretarías/Oficinas de la Gobernación con
         // la numeración del listado "proyectos financiados con recursos propios y del
-        // SGP.xlsx" (columna SECRETARIA/OFICINA). El formato "N - Nombre" importa: el
-        // PDF/Excel exportan solo el número (ver CaracterizacionAsistente::sector_codigo).
+        // SGP.xlsx" (columna SECRETARIA/OFICINA) y una sigla de 3 letras. El formato
+        // "N - Nombre (SIGLA)" importa: el PDF/Excel exportan solo el número y, debajo, la
+        // sigla (ver CaracterizacionAsistente::sector_codigo / sector_sigla).
         $sectores = [
-            '1 - Dirección Departamental de Cultura', '2 - Secretaría General',
-            '3 - Secretaría de Hacienda', '4 - Secretaría de Gobierno, Convivencia y Seguridad Ciudadana',
-            '5 - Secretaría de Infraestructura', '6 - Secretaría de Integración, Desarrollo Social y Mujer',
-            '7 - Secretaría de Educación', '8 - Secretaría de Salud',
-            '9 - Secretaría de Agricultura, Ganadería y Medio Ambiente',
-            '10 - Departamento Administrativo de Planeación',
+            '1 - Dirección Departamental de Cultura (DDC)', '2 - Secretaría General (SGE)',
+            '3 - Secretaría de Hacienda (SHA)', '4 - Secretaría de Gobierno, Convivencia y Seguridad Ciudadana (SGO)',
+            '5 - Secretaría de Infraestructura (SIN)', '6 - Secretaría de Integración, Desarrollo Social y Mujer (SID)',
+            '7 - Secretaría de Educación (SED)', '8 - Secretaría de Salud (SAL)',
+            '9 - Secretaría de Agricultura, Ganadería y Medio Ambiente (SAG)',
+            '10 - Departamento Administrativo de Planeación (DAP)',
         ];
         $this->sembrar('sector_organizacion', $sectores);
 
-        // Catálogo anterior de 8 sectores (numeración distinta): se desactiva, no se borra,
-        // y los registros ya guardados con un equivalente claro se pasan al nuevo número
-        // para que el código exportado no apunte a otra secretaría.
+        // Versión previa del mismo catálogo (sin la sigla): se desactiva y los registros ya
+        // guardados pasan al valor con sigla, para no dejar datos con un valor fuera de catálogo.
+        foreach ($sectores as $conSigla) {
+            $sinSigla = trim(preg_replace('/\s*\([A-Za-z]{2,5}\)\s*$/', '', $conSigla));
+            \App\Models\CaracterizacionAsistente::where('item12_sector_organizacion', $sinSigla)
+                ->update(['item12_sector_organizacion' => $conSigla]);
+            CaracterizacionOpcion::where('categoria', 'sector_organizacion')->where('valor', $sinSigla)->update(['activo' => false]);
+        }
+
+        // Catálogo de 8 sectores anterior (numeración distinta): se desactiva, no se borra, y los
+        // registros con un equivalente claro se pasan al nuevo número para que el código exportado
+        // no apunte a otra secretaría.
         $sectoresViejos = [
-            '1 - Educación' => '7 - Secretaría de Educación', '2 - Cultura' => '1 - Dirección Departamental de Cultura',
-            '3 - Ambiental' => '9 - Secretaría de Agricultura, Ganadería y Medio Ambiente', '4 - Salud' => '8 - Secretaría de Salud',
-            '5 - Infraestructura' => '5 - Secretaría de Infraestructura', '6 - Vivienda' => null,
-            '7 - Gobierno' => '4 - Secretaría de Gobierno, Convivencia y Seguridad Ciudadana', '8 - Institucional' => null,
+            '1 - Educación' => $sectores[6], '2 - Cultura' => $sectores[0],
+            '3 - Ambiental' => $sectores[8], '4 - Salud' => $sectores[7],
+            '5 - Infraestructura' => $sectores[4], '6 - Vivienda' => null,
+            '7 - Gobierno' => $sectores[3], '8 - Institucional' => null,
         ];
         foreach ($sectoresViejos as $viejo => $nuevo) {
             if ($nuevo) {

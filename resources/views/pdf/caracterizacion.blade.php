@@ -343,7 +343,8 @@
                     $marca(in_array('Salud', $problematicas)),
                     $marca(in_array('Cultural', $problematicas)),
                     $marca(in_array('Educativa', $problematicas)),
-                    $a->sector_codigo,
+                    // Sector: número y, debajo, la sigla (más pequeña) para que quepa en la celda.
+                    $a->sector_codigo ? e($a->sector_codigo).($a->sector_sigla ? '<br><span style="font-size:4.2pt;">'.e($a->sector_sigla).'</span>' : '') : null,
                     $marca($a->item13_clasificacion_organizacion === 'Con Ánimo de Lucro'),
                     $marca($a->item13_clasificacion_organizacion === 'Sin Ánimo de Lucro'),
                     $marca(in_array('Discapacidad', $enfoques)),
@@ -394,7 +395,7 @@
                 @else
                     <div class="cell cell-pad data-cell {{ in_array($ci, $leftAligned) ? 'left' : '' }} {{ in_array($valores[$ci], ['X'], true) ? 'x-mark' : '' }}"
                          style="left:{{ $x($ci) }}pt; top:{{ $rowTop }}pt; width:{{ $w($ci) }}pt; height:{{ $rowH }}pt; padding-top:{{ $padTop((string) $valores[$ci], $rowH, 5.6) }}pt;">
-                        {{ $valores[$ci] }}
+                        @if ($ci === 23){!! $valores[$ci] !!}@else{{ $valores[$ci] }}@endif
                     </div>
                 @endif
             @endfor

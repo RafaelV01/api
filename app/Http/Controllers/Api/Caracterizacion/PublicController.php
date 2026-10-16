@@ -74,17 +74,50 @@ class PublicController extends Controller
             default => 'ubicacion_rural_estandar',
         };
 
+        // Contacto: solo el número de celular. Se normaliza lo que el ciudadano pueda haber
+        // pegado (espacios, guiones, paréntesis, +57) antes de validar el formato.
+        if ($request->has('item8_contacto_valor')) {
+            $digitos = preg_replace('/\D+/', '', (string) $request->input('item8_contacto_valor'));
+            if (strlen($digitos) === 12 && str_starts_with($digitos, '57')) {
+                $digitos = substr($digitos, 2);
+            }
+            $request->merge(['item8_contacto_valor' => $digitos]);
+        }
+
+        // Formatos permitidos (Unicode: tildes, ñ). Nada que empiece por = + - @ (fórmulas).
+        $reNombre = '/^[\p{L}\p{N}][\p{L}\p{N} .,&\'\-()\/]*$/u';
+        $reTexto = '/^[\p{L}\p{N}][\p{L}\p{N} .,#°&\'\-()\/:]*$/u';
+        $reMunicipio = '/^\p{L}[\p{L} .\'\-]*$/u';
+
+        // Número de documento según el tipo elegido.
+        $tipoDoc = (string) $request->input('item2_tipo_documento');
+        $reDocumento = match ($tipoDoc) {
+            'PASAPORTE' => '/^[A-Za-z0-9]{5,15}$/',
+            'NIT' => '/^\d{6,12}(-?\d)?$/',
+            default => '/^\d{4,12}$/',
+        };
+
+        $mensajes = [
+            'item1_nombre.regex' => 'El nombre solo puede tener letras, números y . , & - \' ( ) /.',
+            'item3_numero_documento.regex' => 'El número de documento no es válido para el tipo elegido (C.C, T.I, R.C y C.E: solo números; NIT: números y dígito de verificación; Pasaporte: letras y números).',
+            'item4_cargo_barrio_vereda.regex' => 'El cargo / barrio / vereda contiene caracteres no permitidos.',
+            'item5_municipio.regex' => 'El municipio solo puede tener letras.',
+            'item7_ubicacion_detalle.regex' => 'La dirección contiene caracteres no permitidos.',
+            'item8_contacto_valor.regex' => 'El contacto debe ser un número de celular de 10 dígitos que empiece por 3 (solo números).',
+            'item8_contacto_valor.required' => 'El número de celular es obligatorio.',
+        ];
+
         $validated = $request->validate([
-            'item1_nombre' => 'required|string|max:255',
+            'item1_nombre' => ['required', 'string', 'min:2', 'max:255', 'regex:'.$reNombre],
             'item2_tipo_documento' => ['required', 'string', $opcion('tipo_documento')],
-            'item3_numero_documento' => 'required|string|max:30',
-            'item4_cargo_barrio_vereda' => 'required|string|max:255',
+            'item3_numero_documento' => ['required', 'string', 'max:30', 'regex:'.$reDocumento],
+            'item4_cargo_barrio_vereda' => ['required', 'string', 'max:255', 'regex:'.$reTexto],
             // Municipio admite el catálogo o texto libre (igual que el formato de Reuniones).
-            'item5_municipio' => 'required|string|max:50',
+            'item5_municipio' => ['required', 'string', 'max:50', 'regex:'.$reMunicipio],
             'item6_zona' => 'required|in:urbana,rural',
             'item7_ubicacion_tipo' => ['required', 'string', $opcion($categoriaUbicacion)],
-            'item7_ubicacion_detalle' => 'nullable|string|max:255',
-            'item8_contacto_valor' => 'required|string|max:30',
+            'item7_ubicacion_detalle' => ['nullable', 'string', 'max:255', 'regex:'.$reTexto],
+            'item8_contacto_valor' => ['required', 'string', 'regex:/^3\d{9}$/'],
             'item9_genero' => ['required', 'string', $opcion('genero')],
             'item10_etnico' => ['nullable', 'string', $opcion('etnico')],
             'item11_problematicas' => 'nullable|array',
@@ -97,7 +130,7 @@ class PublicController extends Controller
             'item16_tamano_grupo_familiar' => 'required|integer|min:1|max:20',
             'firma_base64' => 'required|string',
             'firma_hash' => 'required|string|size:64',
-        ]);
+        ], $mensajes);
 
         $asistente = DB::transaction(function () use ($validated, $actividad, $request) {
             $asistente = $actividad->asistentes()->create([
