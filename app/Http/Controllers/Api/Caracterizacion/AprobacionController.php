@@ -45,8 +45,10 @@ class AprobacionController extends Controller
         // ventana de carrera con otra aprobación/rechazo concurrente sobre el mismo
         // conjunto, y el conteo reportado/auditado sale de las filas realmente
         // recorridas, no de un COUNT(*) tomado antes del cambio.
-        $afectadas = DB::transaction(function () use ($query, $estadoNuevo, $validated) {
+        $idsAfectadas = [];
+        $afectadas = DB::transaction(function () use ($query, $estadoNuevo, $validated, &$idsAfectadas) {
             $actividades = $query->lockForUpdate()->get();
+            $idsAfectadas = $actividades->pluck('id')->all();
 
             foreach ($actividades as $actividad) {
                 $actividad->update([
@@ -68,6 +70,20 @@ class AprobacionController extends Controller
 
             return $actividades->count();
         });
+
+        // Un aviso por creador: «tu actividad fue aprobada/rechazada» (con el motivo si lo hubo)
+        $porCreador = CaracterizacionActividad::whereIn('id', $idsAfectadas ?? [])->get(['id', 'tema', 'creador_id'])->groupBy('creador_id');
+        foreach ($porCreador as $creadorId => $lista) {
+            $palabra = $estadoNuevo === 'aprobada' ? 'aprobada' : 'rechazada';
+            $una = $lista->count() === 1;
+            \App\Models\CaracterizacionNotificacion::enviar(
+                (int) $creadorId,
+                $estadoNuevo,
+                $una ? "Tu actividad fue {$palabra}" : "{$lista->count()} de tus actividades fueron {$palabra}s",
+                $una ? '«'.$lista->first()->tema.'»'.(! empty($validated['observacion']) ? ' — '.$validated['observacion'] : '') : (! empty($validated['observacion']) ? $validated['observacion'] : null),
+                $una ? '/caracterizacion/actividades/'.$lista->first()->id : '/caracterizacion'
+            );
+        }
 
         return response()->json([
             'message' => "Se {$validated['accion']} {$afectadas} actividad(es).",

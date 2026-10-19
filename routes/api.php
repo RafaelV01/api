@@ -84,6 +84,16 @@ Route::middleware('auth:sanctum')->group(function () {
         // a propósito no requiere es.admin, solo un perfil de caracterización activo.
         Route::get('/usuarios-disponibles', [OrgController::class, 'usuariosDisponibles']);
 
+        // Notificaciones del usuario (la campana del encabezado)
+        Route::get('/notificaciones', [\App\Http\Controllers\Api\Caracterizacion\NotificacionController::class, 'index']);
+        Route::post('/notificaciones/leer-todas', [\App\Http\Controllers\Api\Caracterizacion\NotificacionController::class, 'leerTodas']);
+        Route::post('/notificaciones/{id}/leer', [\App\Http\Controllers\Api\Caracterizacion\NotificacionController::class, 'leer']);
+
+        // Exportaciones largas en segundo plano: se piden, se consulta su estado y se descargan cuando están listas.
+        Route::post('/exportaciones', [\App\Http\Controllers\Api\Caracterizacion\ExportacionController::class, 'store']);
+        Route::get('/exportaciones/{exportacion}', [\App\Http\Controllers\Api\Caracterizacion\ExportacionController::class, 'show']);
+        Route::get('/exportaciones/{exportacion}/descargar', [\App\Http\Controllers\Api\Caracterizacion\ExportacionController::class, 'descargar']);
+
         // Plan de Desarrollo Departamental (sector → programa → meta producto) para la Parte 2.
         Route::get('/plan-desarrollo', [\App\Http\Controllers\Api\Caracterizacion\PlanDesarrolloController::class, 'index']);
 
@@ -134,6 +144,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::get('/estadisticas', [EstadisticasController::class, 'index']);
             Route::get('/estadisticas/exportar', [EstadisticasController::class, 'exportar']);
+            // Plan de Desarrollo administrable (listar, crear, editar/activar, importar CSV o JSON)
+            Route::get('/plan-desarrollo/admin', [\App\Http\Controllers\Api\Caracterizacion\PlanDesarrolloController::class, 'admin']);
+            Route::post('/plan-desarrollo/admin', [\App\Http\Controllers\Api\Caracterizacion\PlanDesarrolloController::class, 'guardar']);
+            Route::post('/plan-desarrollo/admin/importar', [\App\Http\Controllers\Api\Caracterizacion\PlanDesarrolloController::class, 'importar']);
+            Route::put('/plan-desarrollo/admin/{id}', [\App\Http\Controllers\Api\Caracterizacion\PlanDesarrolloController::class, 'actualizar']);
             Route::get('/personas', [\App\Http\Controllers\Api\Caracterizacion\PersonaController::class, 'index']);
             Route::get('/personas/{persona}', [\App\Http\Controllers\Api\Caracterizacion\PersonaController::class, 'show']);
             Route::get('/estadisticas/variables', [EstadisticasVariablesController::class, 'variables']);

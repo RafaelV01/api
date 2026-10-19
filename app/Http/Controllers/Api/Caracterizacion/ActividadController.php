@@ -363,6 +363,11 @@ class ActividadController extends Controller
             return response()->json(['message' => 'Este usuario ya fue invitado a esta actividad.'], 422);
         }
 
+        \App\Models\CaracterizacionNotificacion::enviar(
+            (int) $validated['usuario_id'], 'invitacion', 'Te invitaron a colaborar',
+            (Auth::user()->nombre_completo ?? 'Un compañero').' te invitó a completar el seguimiento de «'.$actividad->tema.'»', '/caracterizacion/compartidas'
+        );
+
         return response()->json($colaborador->load('usuario'), 201);
     }
 
@@ -406,6 +411,13 @@ class ActividadController extends Controller
         $colaborador->estado = $validated['accion'];
         $colaborador->responded_at = now();
         $colaborador->save();
+
+        $actividadTema = $colaborador->actividad?->tema ?? CaracterizacionActividad::whereKey($colaborador->actividad_id)->value('tema');
+        \App\Models\CaracterizacionNotificacion::enviar(
+            (int) $colaborador->invitado_por, 'invitacion_respuesta',
+            (Auth::user()->nombre_completo ?? 'La persona invitada').($validated['accion'] === CaracterizacionColaborador::ESTADO_ACEPTADO ? ' aceptó' : ' rechazó').' tu invitación',
+            '«'.$actividadTema.'»', '/caracterizacion/actividades/'.$colaborador->actividad_id
+        );
 
         return response()->json($colaborador);
     }

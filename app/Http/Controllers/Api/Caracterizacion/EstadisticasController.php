@@ -24,7 +24,38 @@ class EstadisticasController extends Controller
         return response()->json($this->calcular($request));
     }
 
+    /**
+     * Datos del dashboard; si se filtra por fechas, agrega el comparativo con el período anterior de igual duración
+     * (personas únicas, participaciones y actividades).
+     */
     private function calcular(Request $request): array
+    {
+        $datos = $this->calcularBase($request);
+
+        if ($request->filled('fecha_desde') && $request->filled('fecha_hasta')) {
+            $desde = $request->date('fecha_desde')->startOfDay();
+            $hasta = $request->date('fecha_hasta')->startOfDay();
+            if ($hasta->gte($desde)) {
+                $dias = $desde->diffInDays($hasta) + 1;
+                $anteriorHasta = $desde->copy()->subDay();
+                $anteriorDesde = $anteriorHasta->copy()->subDays($dias - 1);
+                $anterior = $this->calcularBase(Request::create('/x', 'GET', array_merge(
+                    $request->query(),
+                    ['fecha_desde' => $anteriorDesde->toDateString(), 'fecha_hasta' => $anteriorHasta->toDateString()]
+                )));
+                $datos['comparativo'] = [
+                    'periodo_anterior' => ['desde' => $anteriorDesde->toDateString(), 'hasta' => $anteriorHasta->toDateString()],
+                    'personas' => [$datos['total_general'], $anterior['total_general']],
+                    'participaciones' => [$datos['total_participaciones'], $anterior['total_participaciones']],
+                    'actividades' => [$datos['total_actividades'], $anterior['total_actividades']],
+                ];
+            }
+        }
+
+        return $datos;
+    }
+
+    private function calcularBase(Request $request): array
     {
         $filtrar = function ($query) use ($request) {
             $query->join('caracterizacion_actividades', 'caracterizacion_actividades.id', '=', 'caracterizacion_asistentes.actividad_id');
