@@ -83,6 +83,9 @@ Route::middleware('auth:sanctum')->group(function () {
         // a propósito no requiere es.admin, solo un perfil de caracterización activo.
         Route::get('/usuarios-disponibles', [OrgController::class, 'usuariosDisponibles']);
 
+        // Plan de Desarrollo Departamental (sector → programa → meta producto) para la Parte 2.
+        Route::get('/plan-desarrollo', [\App\Http\Controllers\Api\Caracterizacion\PlanDesarrolloController::class, 'index']);
+
         // Contratista/Secretaría/Administrador: cada uno ve lo suyo (scopeVisiblePara).
         Route::get('/actividades', [ActividadController::class, 'index']);
         // Consolidado (todas las actividades visibles + filtros) en un solo Excel
