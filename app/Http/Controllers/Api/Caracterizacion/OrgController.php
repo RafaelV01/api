@@ -8,6 +8,7 @@ use App\Models\CaracterizacionPerfil;
 use App\Models\CaracterizacionSecretaria;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class OrgController extends Controller
@@ -151,11 +152,38 @@ class OrgController extends Controller
             'No autorizado.'
         );
 
-        return response()->json(
-            User::select('id', 'nombre_completo', 'email')
-                ->orderBy('nombre_completo')
-                ->get()
-        );
+        $consulta = User::select('id', 'nombre_completo', 'email')->orderBy('nombre_completo');
+
+        // Acotar a quienes pertenecen a la secretaría/dependencia elegida: tienen perfil allí o crearon actividades allí.
+        // (Antes el filtro «por usuario» cargaba TODOS los usuarios del sistema.)
+        if ($request->filled('secretaria_id') || $request->filled('dependencia_id')) {
+            $dependencias = array_values(array_filter(array_map('intval', explode(',', (string) $request->input('dependencia_id')))));
+            $aplicar = function ($q) use ($request, $dependencias) {
+                if ($request->filled('secretaria_id')) {
+                    $q->where('secretaria_id', $request->integer('secretaria_id'));
+                }
+                if ($dependencias) {
+                    $q->whereIn('dependencia_id', $dependencias);
+                }
+            };
+            $consulta->where(function ($w) use ($aplicar) {
+                $w->whereIn('id', DB::table('caracterizacion_perfiles')->where($aplicar)->select('usuario_id'))
+                    ->orWhereIn('id', DB::table('caracterizacion_actividades')->where($aplicar)->select('creador_id'));
+            });
+        }
+
+        // Buscador: por nombre o correo, resuelto en el servidor
+        if ($request->filled('q')) {
+            $texto = '%'.str_replace(['%', '_'], ['\%', '\_'], trim((string) $request->input('q'))).'%';
+            $consulta->where(fn ($w) => $w->where('nombre_completo', 'like', $texto)->orWhere('email', 'like', $texto));
+        }
+
+        // Con `limit` solo devuelve esa cantidad (máx. 100); sin él, la lista completa (clientes antiguos).
+        if ($request->filled('limit')) {
+            $consulta->limit(min(max($request->integer('limit'), 1), 100));
+        }
+
+        return response()->json($consulta->get());
     }
 
     // ─── Perfiles (asignación de rol dentro de Caracterización) ────────────
