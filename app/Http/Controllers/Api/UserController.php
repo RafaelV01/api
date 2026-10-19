@@ -41,14 +41,26 @@ class UserController extends Controller
     }
 
     // ─── ADMIN: listar todos los usuarios ────────────────────────────────────
-    public function index()
+    public function index(Request $request)
     {
-        $usuarios = User::with(['role', 'caracterizacionPerfil'])
-            ->orderBy('nombre_completo')
-            ->get()
-            ->map(fn($u) => $this->formatUser($u));
+        $consulta = User::with(['role', 'caracterizacionPerfil'])->orderBy('nombre_completo');
 
-        return response()->json($usuarios);
+        // Buscador en el servidor: nombre, correo, cargo o dependencia
+        if ($request->filled('q')) {
+            $texto = '%'.str_replace(['%', '_'], ['\\%', '\\_'], trim((string) $request->input('q'))).'%';
+            $consulta->where(fn ($w) => $w->where('nombre_completo', 'like', $texto)->orWhere('email', 'like', $texto)
+                ->orWhere('cargo', 'like', $texto)->orWhere('dependencia', 'like', $texto));
+        }
+
+        // Con `page` o `per_page` responde paginado; sin ellos, la lista completa (clientes antiguos).
+        if ($request->filled('page') || $request->filled('per_page')) {
+            $pagina = $consulta->paginate(min(max($request->integer('per_page', 20), 5), 100));
+            $pagina->getCollection()->transform(fn ($u) => $this->formatUser($u));
+
+            return response()->json($pagina);
+        }
+
+        return response()->json($consulta->get()->map(fn ($u) => $this->formatUser($u)));
     }
 
     // ─── ADMIN: crear usuario ─────────────────────────────────────────────────
@@ -211,6 +223,43 @@ class UserController extends Controller
         $user->save();
 
         return response()->json(['message' => 'Contraseña actualizada correctamente.']);
+    }
+
+    // ─── ADMIN: asignar secretaría y dependencia a varios usuarios de una vez ──────
+    public function asignarDependencia(Request $request)
+    {
+        $validated = $request->validate([
+            'usuario_ids' => 'required|array|min:1|max:500',
+            'usuario_ids.*' => 'integer|exists:usuarios,id',
+            'caracterizacion_secretaria_id' => 'required|integer|exists:caracterizacion_secretarias,id',
+            'caracterizacion_dependencia_id' => 'required|integer|exists:caracterizacion_dependencias,id',
+            'caracterizacion_rol' => ['nullable', Rule::in(CaracterizacionPerfil::ROLES)],
+        ]);
+
+        $dependencia = \App\Models\CaracterizacionDependencia::with('secretaria')->findOrFail($validated['caracterizacion_dependencia_id']);
+        if ((int) $dependencia->secretaria_id !== (int) $validated['caracterizacion_secretaria_id']) {
+            return response()->json(['message' => 'La dependencia no pertenece a esa secretaría.'], 422);
+        }
+        $texto = mb_substr($dependencia->secretaria->nombre.' — '.$dependencia->nombre, 0, 160);
+
+        $n = 0;
+        \Illuminate\Support\Facades\DB::transaction(function () use ($validated, $dependencia, $texto, &$n) {
+            foreach (User::whereIn('id', $validated['usuario_ids'])->get() as $usuario) {
+                $usuario->dependencia = $texto;
+                $usuario->save();
+                // Sin rol solo se actualiza el texto y, si ya tenía perfil, se mueve a la nueva dependencia (conserva su rol).
+                $perfil = $usuario->caracterizacionPerfil;
+                $rol = $validated['caracterizacion_rol'] ?? $perfil?->rol;
+                if ($rol) {
+                    CaracterizacionPerfil::updateOrCreate(['usuario_id' => $usuario->id], [
+                        'rol' => $rol, 'secretaria_id' => $dependencia->secretaria_id, 'dependencia_id' => $dependencia->id, 'activo' => true,
+                    ]);
+                }
+                $n++;
+            }
+        });
+
+        return response()->json(['actualizados' => $n, 'dependencia' => $texto]);
     }
 
     // ─── ADMIN: eliminar usuario ──────────────────────────────────────────────

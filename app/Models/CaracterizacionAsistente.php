@@ -13,7 +13,7 @@ class CaracterizacionAsistente extends Model
     protected $table = 'caracterizacion_asistentes';
 
     protected $fillable = [
-        'actividad_id',
+        'actividad_id', 'persona_id',
         // Parte 1 — la llena el ciudadano
         'item1_nombre', 'item2_tipo_documento', 'item3_numero_documento',
         'item4_cargo_barrio_vereda', 'item5_municipio', 'item6_zona',
@@ -88,6 +88,12 @@ class CaracterizacionAsistente extends Model
         $valor = $this->item12_sector_organizacion;
 
         return $valor && preg_match('/\(([\p{L}]{2,5})\)\s*$/u', $valor, $m) ? mb_strtoupper($m[1]) : null;
+    }
+
+    /** Ficha del ciudadano único al que pertenece esta participación. */
+    public function persona()
+    {
+        return $this->belongsTo(CaracterizacionPersona::class, 'persona_id');
     }
 
     public function actividad()

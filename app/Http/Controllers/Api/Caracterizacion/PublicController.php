@@ -132,8 +132,39 @@ class PublicController extends Controller
             'firma_hash' => 'required|string|size:64',
         ], $mensajes);
 
-        $asistente = DB::transaction(function () use ($validated, $actividad, $request) {
+        $claveCiudadano = \App\Models\CaracterizacionPersona::clave($validated['item2_tipo_documento'], $validated['item3_numero_documento']);
+        if ($actividad->asistentes()->where('persona_clave', $claveCiudadano)->exists()) {
+            return response()->json([
+                'message' => 'Ya hay un registro con ese documento en esta reunión.',
+                'errors' => ['item3_numero_documento' => ['Ya hay un registro con ese documento en esta reunión.']],
+            ], 422);
+        }
+
+        $asistente = DB::transaction(function () use ($validated, $actividad, $request, $claveCiudadano) {
+            // Ficha única de la persona: se crea la primera vez y se actualiza con lo más reciente que declare.
+            $persona = \App\Models\CaracterizacionPersona::firstOrNew(['persona_clave' => $claveCiudadano]);
+            $persona->fill([
+                'tipo_documento' => mb_strtoupper(trim($validated['item2_tipo_documento'])),
+                'numero_documento' => trim($validated['item3_numero_documento']),
+                'nombre' => $validated['item1_nombre'],
+                'municipio' => $validated['item5_municipio'],
+                'zona' => $validated['item6_zona'],
+                'ubicacion_tipo' => $validated['item7_ubicacion_tipo'],
+                'ubicacion_detalle' => $validated['item7_ubicacion_detalle'] ?? null,
+                'contacto' => $validated['item8_contacto_valor'],
+                'genero' => $validated['item9_genero'],
+                'etnico' => $validated['item10_etnico'] ?? null,
+                'sector_organizacion' => $validated['item12_sector_organizacion'] ?? null,
+                'clasificacion_organizacion' => $validated['item13_clasificacion_organizacion'] ?? null,
+                'edad' => $validated['item15_edad'],
+                'tamano_grupo_familiar' => $validated['item16_tamano_grupo_familiar'],
+                'cargo_barrio_vereda' => $validated['item4_cargo_barrio_vereda'],
+                'participaciones' => ($persona->participaciones ?? 0) + 1,
+                'ultima_participacion_en' => now(),
+            ])->save();
+
             $asistente = $actividad->asistentes()->create([
+                'persona_id' => $persona->id,
                 'item1_nombre' => $validated['item1_nombre'],
                 'item2_tipo_documento' => $validated['item2_tipo_documento'],
                 'item3_numero_documento' => $validated['item3_numero_documento'],

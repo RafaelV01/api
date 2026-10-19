@@ -64,6 +64,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ─── Solo Administrador ───────────────────────────────────────────────────
     Route::middleware('es.admin')->group(function () {
         Route::get('/roles', [UserController::class, 'roles']);
+        Route::post('/usuarios/asignar-dependencia', [UserController::class, 'asignarDependencia']);
         Route::get('/usuarios', [UserController::class, 'index']);
         Route::post('/usuarios', [UserController::class, 'store']);
         Route::get('/usuarios/{id}', [UserController::class, 'show']);
@@ -96,6 +97,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/actividades/{actividad}/pdf', [ActividadController::class, 'generarPdf']);
         Route::get('/actividades/{actividad}/excel', [ActividadController::class, 'generarExcel']);
         Route::put('/actividades/{actividad}/parte2', [ActividadController::class, 'completarParte2']);
+        Route::put('/actividades/{actividad}/seguimiento-lote', [ActividadController::class, 'seguimientoLote']);
         Route::put('/asistentes/{asistente}/seguimiento', [ActividadController::class, 'completarParte2Asistente']);
         Route::delete('/asistentes/{asistente}/seguimiento', [ActividadController::class, 'quitarParte2Asistente']);
 
@@ -132,6 +134,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::get('/estadisticas', [EstadisticasController::class, 'index']);
             Route::get('/estadisticas/exportar', [EstadisticasController::class, 'exportar']);
+            Route::get('/personas', [\App\Http\Controllers\Api\Caracterizacion\PersonaController::class, 'index']);
+            Route::get('/personas/{persona}', [\App\Http\Controllers\Api\Caracterizacion\PersonaController::class, 'show']);
             Route::get('/estadisticas/variables', [EstadisticasVariablesController::class, 'variables']);
             Route::get('/estadisticas/por-variables', [EstadisticasVariablesController::class, 'index']);
             Route::get('/estadisticas/por-variables/exportar', [EstadisticasVariablesController::class, 'exportar']);

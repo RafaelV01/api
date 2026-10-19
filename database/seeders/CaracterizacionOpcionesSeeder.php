@@ -38,6 +38,13 @@ class CaracterizacionOpcionesSeeder extends Seeder
         // Catálogo anterior: se desactiva (no se borra) para no perder el histórico de quién lo usó.
         CaracterizacionOpcion::where('categoria', 'ubicacion_tipo')->update(['activo' => false]);
 
+        // Cargo de los usuarios del sistema (editable desde el Catálogo; el formulario también deja escribir «Otro»).
+        $this->sembrar('cargo', [
+            'Secretario(a) de despacho', 'Director(a) técnico(a)', 'Jefe de oficina', 'Coordinador(a) de programa', 'Profesional especializado',
+            'Profesional universitario', 'Contratista profesional', 'Técnico administrativo', 'Gestor(a) territorial', 'Asesor(a) externo',
+            'Apoyo a la supervisión', 'Auxiliar administrativo',
+        ]);
+
         $this->sembrar('contacto_tipo', ['Celular']);
         CaracterizacionOpcion::where('categoria', 'contacto_tipo')->where('valor', 'Teléfono')->update(['activo' => false]);
 

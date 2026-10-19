@@ -253,6 +253,43 @@ class ActividadController extends Controller
         return response()->json($seguimiento);
     }
 
+    /**
+     * Aplica el MISMO seguimiento (Parte 2) a varios ciudadanos de la actividad de una vez, o se los quita (`quitar`).
+     * Cada uno queda con su seguimiento propio; el código DANE sale del municipio de cada persona.
+     */
+    public function seguimientoLote(Request $request, CaracterizacionActividad $actividad)
+    {
+        $this->autorizarAcceso($actividad);
+
+        $ids = collect($request->validate([
+            'asistentes' => 'required|array|min:1|max:500',
+            'asistentes.*' => 'integer',
+        ])['asistentes'])->unique()->values();
+
+        $asistentes = $actividad->asistentes()->whereIn('id', $ids)->get(['id', 'actividad_id', 'item5_municipio']);
+        if ($asistentes->count() !== $ids->count()) {
+            return response()->json(['message' => 'Algún ciudadano no pertenece a esta actividad.'], 422);
+        }
+
+        if ($request->boolean('quitar')) {
+            DB::transaction(fn () => CaracterizacionSeguimientoAsistente::whereIn('asistente_id', $ids)->get()->each->delete());
+
+            return response()->json(['actualizados' => $asistentes->count(), 'accion' => 'quitado']);
+        }
+
+        $validated = $request->validate($this->reglasParte2());
+        DB::transaction(function () use ($asistentes, $validated) {
+            foreach ($asistentes as $a) {
+                CaracterizacionSeguimientoAsistente::updateOrCreate(
+                    ['asistente_id' => $a->id],
+                    [...$validated, 'item20_codigo_dane' => $this->codigoDane($a->item5_municipio, $validated['item20_codigo_dane'] ?? null), 'completado_por' => Auth::id(), 'completado_en' => now()]
+                );
+            }
+        });
+
+        return response()->json(['actualizados' => $asistentes->count(), 'accion' => 'guardado']);
+    }
+
     /** Quita el seguimiento propio del ciudadano: vuelve a valer el general de la actividad. */
     public function quitarParte2Asistente(CaracterizacionAsistente $asistente)
     {
