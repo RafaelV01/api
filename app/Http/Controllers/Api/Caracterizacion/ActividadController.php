@@ -24,14 +24,38 @@ class ActividadController extends Controller
      * Lista actividades visibles para el usuario autenticado según su rol
      * (contratista: solo las propias; secretaría: las de su secretaría; admin: todas).
      */
+    /** Columnas del listado de actividades (todas menos las firmas del expositor). */
+    private const COLUMNAS_LISTA = [
+        'id', 'codigo', 'slug_acceso', 'tema', 'fecha', 'hora', 'quien_dirige_expone', 'municipio', 'departamento',
+        'tipo_evento', 'otro_evento_detalle', 'creador_id', 'dependencia_id', 'secretaria_id', 'estado',
+        'estado_aprobacion', 'aprobado_por', 'fecha_aprobacion', 'observacion_aprobacion', 'created_at', 'updated_at',
+    ];
+
+    /** Columnas de cada ciudadano en el detalle (sin firma, IP ni navegador: no las usa la pantalla). */
+    private const COLUMNAS_ASISTENTE = [
+        'id', 'actividad_id', 'item1_nombre', 'item2_tipo_documento', 'item3_numero_documento', 'item4_cargo_barrio_vereda',
+        'item5_municipio', 'item6_zona', 'item7_ubicacion_tipo', 'item7_ubicacion_detalle', 'item8_contacto_tipo',
+        'item8_contacto_valor', 'item9_genero', 'item10_etnico', 'item12_sector_organizacion',
+        'item13_clasificacion_organizacion', 'item15_edad', 'item16_tamano_grupo_familiar',
+        'item17_canal_comunicacion', 'item18_idioma_lengua_dialecto', 'created_at', 'updated_at',
+    ];
+
     public function index(Request $request)
     {
-        $query = CaracterizacionActividad::with(['dependencia', 'secretaria', 'creador'])
+        // El listado NO trae las firmas en base64 (pesan decenas de KB por actividad): solo las necesita el PDF/Excel.
+        $query = CaracterizacionActividad::query()->select(self::COLUMNAS_LISTA)
+            ->with(['dependencia:id,nombre', 'secretaria:id,nombre', 'creador:id,nombre_completo'])
             ->visiblePara(Auth::user())
             ->withCount('asistentes')
-            ->latest();
+            ->orderByDesc('created_at')->orderByDesc('id');
 
         $this->aplicarFiltros($query, $request);
+
+        // Con `page` o `per_page` responde paginado (lo que usan las pantallas); sin ellos devuelve la lista
+        // completa pero liviana, para no romper clientes antiguos.
+        if ($request->filled('page') || $request->filled('per_page')) {
+            return response()->json($query->paginate(min(max($request->integer('per_page', 20), 5), 100)));
+        }
 
         return response()->json($query->get());
     }
@@ -119,8 +143,9 @@ class ActividadController extends Controller
         $this->autorizarAcceso($actividad);
 
         $actividad->load(['dependencia', 'secretaria', 'creador', 'seguimiento', 'colaboradores.usuario', 'asistentes' => function ($q) {
-            $q->with(['problematicas', 'enfoques', 'seguimientoPropio']);
+            $q->select(self::COLUMNAS_ASISTENTE)->with(['problematicas', 'enfoques', 'seguimientoPropio']);
         }]);
+        $actividad->makeHidden(['firma_expositor_base64', 'firma_expositor_hash']);
 
         // La lista de colaboradores (incluye invitaciones pendientes/rechazadas con
         // nombre) es información pensada solo para el creador — el frontend ya la
@@ -452,6 +477,63 @@ class ActividadController extends Controller
             'Content-Disposition' => 'attachment; filename="consolidado-caracterizacion-'.now()->format('Ymd-His').'.xlsx"',
             'Cache-Control' => 'no-cache, no-store, must-revalidate',
         ]);
+    }
+
+    /**
+     * Excel en el formato oficial FO-PDD-19 (el mismo de cada actividad y del consolidado) con una fila por cada
+     * participación recibida, venga de la actividad que venga. Lo usa la exportación de «Estadísticas por variables».
+     * Cada participación ya debe traer cargadas problematicas, enfoques, seguimientoPropio y actividad.seguimiento.
+     *
+     * @param  \Illuminate\Support\Collection<int, CaracterizacionAsistente>  $asistentes
+     */
+    public function excelDeParticipaciones(\Illuminate\Support\Collection $asistentes, string $tema, string $notaConsulta = ''): string
+    {
+        $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load(resource_path('templates/FO-PDD-19.xlsx'));
+        $sheet = $spreadsheet->getSheetByName('FO-PDD-19');
+        $this->agregarEncabezadoInstitucional($sheet, now()->format('d-m-Y'));
+
+        $fechas = $asistentes->map(fn ($a) => $a->actividad?->fecha)->filter()->sort()->values();
+        $rango = $fechas->isEmpty() ? '' : ($fechas->first()->format('d/m/Y') === $fechas->last()->format('d/m/Y')
+            ? $fechas->first()->format('d/m/Y') : $fechas->first()->format('d/m/Y').' a '.$fechas->last()->format('d/m/Y'));
+        $municipios = $asistentes->map(fn ($a) => $a->actividad?->municipio)->filter()->unique()->values();
+
+        $sheet->setCellValue($this->c('C1'), $this->sinFormula($tema));
+        $sheet->setCellValue($this->c('C2'), $rango);
+        $sheet->setCellValue($this->c('Q2'), '');
+        $this->escribirBannerFila3($sheet, 'VARIOS', $municipios->count() === 1 ? (string) $municipios->first() : 'VARIOS', 'Casanare');
+        $this->estilizarBanner($sheet);
+        $this->ajustarEncabezados($sheet);
+
+        $items = $asistentes->values()->map(fn ($a, $i) => [
+            'a' => $a, 'seg' => $a->seguimientoPropio ?? $a->actividad?->seguimiento, 'n' => $i + 1,
+        ])->all();
+        $archivosTemporales = [];
+        $incluirFirmas = count($items) <= self::MAX_FILAS_CON_FIRMA;
+        $siguiente = $this->volcarFilasExcel($sheet, $items, 8 + self::FILAS_ENCABEZADO, $archivosTemporales, true, $incluirFirmas);
+        $this->ajustarImpresion($sheet, $siguiente);
+
+        // Hoja con la consulta que originó el listado
+        $h2 = $spreadsheet->createSheet()->setTitle('Consulta');
+        $h2->setCellValue('A1', 'Estadísticas por variables — consulta');
+        $h2->getStyle('A1')->getFont()->setBold(true)->setSize(13);
+        $h2->setCellValue('A3', $this->sinFormula($notaConsulta));
+        $h2->setCellValue('A5', 'Cada fila es una participación (una reunión); una misma persona puede aparecer en varias reuniones, cada una con su propio bien o servicio.');
+        if (! $incluirFirmas) {
+            $h2->setCellValue('A6', 'Con más de '.self::MAX_FILAS_CON_FIRMA.' filas la columna FIRMA no lleva imágenes; las firmas están en el Excel y el PDF de cada actividad.');
+        }
+        $h2->getColumnDimension('A')->setWidth(120);
+        $h2->getStyle('A3:A6')->getAlignment()->setWrapText(true);
+        $spreadsheet->setActiveSheetIndex($spreadsheet->getIndex($sheet));
+
+        $tmp = tempnam(sys_get_temp_dir(), 'listado_');
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet))->save($tmp);
+        $contenido = file_get_contents($tmp);
+        unlink($tmp);
+        foreach ($archivosTemporales as $img) {
+            @unlink($img);
+        }
+
+        return $contenido;
     }
 
     /**
@@ -824,6 +906,12 @@ class ActividadController extends Controller
      */
     private function ajustarEncabezados($sheet): void
     {
+        // Los ítems 17 (Canal de Comunicación) y 18 (Idiomas, Lenguas o dialectos) se quitaron del formulario y del PDF;
+        // la plantilla conserva sus columnas físicas (AG y AH), así que se ocultan para que el Excel quede igual que el PDF.
+        foreach (['AG', 'AH'] as $columnaQuitada) {
+            $sheet->getColumnDimension($columnaQuitada)->setVisible(false);
+        }
+
         [$c5, $k6] = [$this->c('C5'), $this->c('K6')];
         $sheet->setCellValue($c5, "Tipo\nDocu-\nmento (2)");
         $sheet->getStyle($c5)->getAlignment()->setWrapText(true);

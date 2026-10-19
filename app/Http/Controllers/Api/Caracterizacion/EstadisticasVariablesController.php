@@ -162,12 +162,17 @@ class EstadisticasVariablesController extends Controller
     /** Identifica a una persona por su documento (tipo + número), sin importar en cuántas reuniones aparezca. */
     private function clavePersona(): string
     {
-        return "CONCAT(UPPER(TRIM(a.item2_tipo_documento)), '|', TRIM(a.item3_numero_documento))";
+        return 'a.persona_clave';
     }
 
     /** Exporta el mismo resultado a Excel: una hoja de filtros y resumen, una por desglose. */
     public function exportar(Request $request)
     {
+        // Por defecto, el listado en el formato oficial FO-PDD-19; `formato=resumen` da las tablas de conteos.
+        if ($request->input('formato', 'fo-pdd-19') !== 'resumen') {
+            return $this->exportarFormatoOficial($request);
+        }
+
         $r = $this->calcular($request);
         $etiquetas = $this->etiquetas();
 
@@ -221,6 +226,37 @@ class EstadisticasVariablesController extends Controller
         return response($contenido, 200, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Content-Disposition' => 'attachment; filename="estadisticas-variables-'.now()->format('Ymd-His').'.xlsx"',
+            'Cache-Control' => 'no-cache, no-store, must-revalidate',
+        ]);
+    }
+
+    /** Participaciones que cumplen la consulta, en el Excel oficial FO-PDD-19 (tope de 5.000 filas). */
+    private function exportarFormatoOficial(Request $request)
+    {
+        $tope = 5000;
+        $ids = $this->consultaBase($request)->orderBy('act.fecha')->orderBy('a.id')->limit($tope + 1)->pluck('a.id')->map(fn ($v) => (int) $v)->all();
+        $recortado = count($ids) > $tope;
+        $ids = array_slice($ids, 0, $tope);
+
+        $asistentes = \App\Models\CaracterizacionAsistente::with(['problematicas', 'enfoques', 'seguimientoPropio', 'actividad.seguimiento'])
+            ->whereIn('id', $ids ?: [0])->get()
+            ->sortBy(fn ($a) => array_search($a->id, $ids))->values();
+
+        $etiquetas = $this->etiquetas();
+        $partes = [];
+        foreach ($this->filtrosRecibidos($request) as $clave => $valores) {
+            $partes[] = ($etiquetas[$clave] ?? $clave).': '.implode(' o ', $valores);
+        }
+        $consulta = $partes ? implode('  —  y  —  ', $partes) : 'Todas las personas';
+        $personas = $asistentes->pluck('persona_clave')->unique()->count();
+        $nota = "Consulta: {$consulta}\nParticipaciones: ".$asistentes->count()." — personas únicas: {$personas}"
+            .($recortado ? "\nSe incluyen las primeras {$tope} participaciones." : '');
+
+        $contenido = app(ActividadController::class)->excelDeParticipaciones($asistentes, 'ESTADÍSTICAS POR VARIABLES — '.$consulta, $nota);
+
+        return response($contenido, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="estadisticas-variables-fo-pdd-19-'.now()->format('Ymd-His').'.xlsx"',
             'Cache-Control' => 'no-cache, no-store, must-revalidate',
         ]);
     }

@@ -48,4 +48,10 @@ RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cac
 
 EXPOSE 8000
 
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+# nginx + PHP-FPM con varios procesos (antes: `php artisan serve`, de un solo hilo)
+RUN rm -f /etc/nginx/http.d/default.conf
+COPY docker/nginx.conf /etc/nginx/http.d/default.conf
+COPY docker/php-fpm.conf /usr/local/etc/php-fpm.d/zz-app.conf
+COPY docker/php.ini /usr/local/etc/php/conf.d/zz-app.ini
+RUN chmod +x /var/www/html/docker/start.sh
+CMD ["sh", "/var/www/html/docker/start.sh"]

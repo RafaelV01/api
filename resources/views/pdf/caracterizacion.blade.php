@@ -364,6 +364,8 @@
             <div class="hline" style="left:0pt; top:{{ $rowTop + $rowH }}pt; width:{{ $gridW }}pt;"></div>
 
             @for ($ci = 0; $ci < 33; $ci++)
+                {{-- Celdas vacías no se dibujan: las líneas de la grilla ya van aparte, y así el PDF de reuniones grandes se arma mucho más rápido --}}
+                @continue(($ci === 32 && ! $a) || ($ci !== 32 && (string) $valores[$ci] === ''))
                 @if ($ci === 32)
                     <div class="cell firma-cell" style="left:{{ $x($ci) }}pt; top:{{ $rowTop }}pt; width:{{ $w($ci) }}pt; height:{{ $rowH }}pt;">
                         @if ($a && $a->firma_ciudadano_base64)

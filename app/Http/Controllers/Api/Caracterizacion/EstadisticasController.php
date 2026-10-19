@@ -68,7 +68,7 @@ class EstadisticasController extends Controller
         // Una persona que participa en varias reuniones cuenta UNA sola vez: para los datos del ciudadano
         // (zona, género, edad, …) se usa su participación más reciente dentro de los filtros. Lo que depende
         // de cada reunión (mes, secretaría, actividades) cuenta personas distintas dentro de cada grupo.
-        $clavePersona = "CONCAT(UPPER(TRIM(caracterizacion_asistentes.item2_tipo_documento)), '|', TRIM(caracterizacion_asistentes.item3_numero_documento))";
+        $clavePersona = 'caracterizacion_asistentes.persona_clave';
         $idsPersonas = $filtrar(DB::table('caracterizacion_asistentes'))
             ->selectRaw('MAX(caracterizacion_asistentes.id) as id')
             ->groupByRaw($clavePersona)->pluck('id')->map(fn ($v) => (int) $v)->all();
@@ -185,7 +185,64 @@ class EstadisticasController extends Controller
             ->groupBy('caracterizacion_asistentes.item12_sector_organizacion')->orderByDesc('total')->get()
             ->map(fn ($r) => ['sector' => $r->sector, 'total' => (int) $r->total])->values();
 
+        // ── Beneficio recibido (Parte 2): personas distintas por valor, sobre TODAS las reuniones de cada persona ──
+        $conBeneficios = fn () => $filtrar(DB::table('caracterizacion_asistentes'))
+            ->leftJoin('caracterizacion_seguimiento_asistentes as sa', 'sa.asistente_id', '=', 'caracterizacion_asistentes.id')
+            ->leftJoin('caracterizacion_seguimientos as sg', 'sg.actividad_id', '=', 'caracterizacion_asistentes.actividad_id');
+        $beneficios = [];
+        foreach (['categoria' => 'item21_categoria', 'bien_servicio' => 'item21_bien_servicio', 'programa' => 'item26_programa',
+            'sector_plan' => 'item26_sector', 'gestion_inversion' => 'item24_gestion_inversion'] as $k => $col) {
+            $e = "IF(sa.id IS NOT NULL, sa.{$col}, sg.{$col})";
+            $beneficios[$k] = $conBeneficios()->whereRaw("{$e} IS NOT NULL AND {$e} != ''")
+                ->selectRaw("{$e} as valor")->selectRaw("COUNT(DISTINCT {$clavePersona}) as total")
+                ->groupByRaw($e)->orderByDesc('total')->limit(12)->get()
+                ->map(fn ($r) => ['valor' => $r->valor, 'total' => (int) $r->total])->all();
+        }
+
+        $porTipoEvento = $filtrar(DB::table('caracterizacion_asistentes'))
+            ->select('caracterizacion_actividades.tipo_evento as tipo')
+            ->selectRaw('COUNT(DISTINCT caracterizacion_asistentes.actividad_id) as actividades')
+            ->selectRaw("COUNT(DISTINCT {$clavePersona}) as personas")
+            ->groupBy('caracterizacion_actividades.tipo_evento')->orderByDesc('actividades')->get()
+            ->map(fn ($r) => ['tipo' => $r->tipo, 'actividades' => (int) $r->actividades, 'personas' => (int) $r->personas])->all();
+
+        $porDependencia = $filtrar(DB::table('caracterizacion_asistentes'))
+            ->join('caracterizacion_dependencias', 'caracterizacion_dependencias.id', '=', 'caracterizacion_actividades.dependencia_id')
+            ->select('caracterizacion_dependencias.nombre as dependencia')
+            ->selectRaw("COUNT(DISTINCT {$clavePersona}) as total")
+            ->groupBy('caracterizacion_dependencias.nombre')->orderByDesc('total')->limit(15)->get()
+            ->map(fn ($r) => ['dependencia' => $r->dependencia, 'total' => (int) $r->total])->all();
+
+        // Cuántas reuniones tuvo cada persona: 1, 2, 3 o 4 o más
+        $veces = $filtrar(DB::table('caracterizacion_asistentes'))->select('caracterizacion_asistentes.persona_clave')
+            ->selectRaw('COUNT(*) as veces')->groupBy('caracterizacion_asistentes.persona_clave');
+        $recurrenciaBruta = DB::query()->fromSub($veces, 'p')
+            ->selectRaw("CASE WHEN veces >= 4 THEN '4 o más reuniones' WHEN veces = 3 THEN '3 reuniones' WHEN veces = 2 THEN '2 reuniones' ELSE '1 reunión' END as grupo")
+            ->selectRaw('COUNT(*) as total')->groupBy('grupo')->get()->pluck('total', 'grupo');
+        $recurrencia = collect(['1 reunión', '2 reuniones', '3 reuniones', '4 o más reuniones'])
+            ->map(fn ($g) => ['valor' => $g, 'total' => (int) ($recurrenciaBruta[$g] ?? 0)])->all();
+
+        $grupoSql = "CASE WHEN item15_edad BETWEEN 1 AND 5 THEN 'Primera infancia' WHEN item15_edad BETWEEN 6 AND 11 THEN 'Infancia' WHEN item15_edad BETWEEN 12 AND 17 THEN 'Adolescencia' WHEN item15_edad BETWEEN 18 AND 28 THEN 'Jóvenes' WHEN item15_edad BETWEEN 29 AND 60 THEN 'Adultos' WHEN item15_edad BETWEEN 61 AND 120 THEN 'Mayores' END";
+        $generoPorEdad = $aplicarFiltros(DB::table('caracterizacion_asistentes'))->whereNotNull('item9_genero')
+            ->selectRaw("item9_genero as genero, {$grupoSql} as grupo, COUNT(*) as total")->groupBy('genero', 'grupo')->get()
+            ->filter(fn ($r) => $r->grupo)->map(fn ($r) => ['genero' => $r->genero, 'grupo' => $r->grupo, 'total' => (int) $r->total])->values()->all();
+
+        // Actividades por estado de aprobación (sin el filtro de aprobadas, para ver cuántas faltan por revisar)
+        $qEstados = DB::table('caracterizacion_actividades');
+        if ($request->filled('secretaria_id')) { $qEstados->where('secretaria_id', $request->integer('secretaria_id')); }
+        if ($request->filled('dependencia_id')) { $qEstados->whereIn('dependencia_id', array_filter(explode(',', $request->string('dependencia_id')), fn ($i) => $i !== '')); }
+        if ($request->filled('fecha_desde')) { $qEstados->whereDate('fecha', '>=', $request->date('fecha_desde')); }
+        if ($request->filled('fecha_hasta')) { $qEstados->whereDate('fecha', '<=', $request->date('fecha_hasta')); }
+        $actividadesPorEstado = $qEstados->select('estado_aprobacion')->selectRaw('COUNT(*) as total')->groupBy('estado_aprobacion')->pluck('total', 'estado_aprobacion')
+            ->map(fn ($v) => (int) $v)->all();
+
         return [
+            'beneficios' => $beneficios,
+            'por_tipo_evento' => $porTipoEvento,
+            'por_dependencia' => $porDependencia,
+            'recurrencia' => $recurrencia,
+            'genero_por_edad' => $generoPorEdad,
+            'actividades_por_estado' => $actividadesPorEstado,
             'por_municipio' => $resultado,
             'total_general' => $resultado->sum('total_poblacion_atendida'),
             'total_participaciones' => $participaciones,
@@ -241,7 +298,8 @@ class EstadisticasController extends Controller
         $fila += 2;
 
         foreach ([
-            ['Personas caracterizadas', $d['total_general']],
+            ['Personas caracterizadas (únicas)', $d['total_general']],
+            ['Participaciones (registros en reuniones)', $d['total_participaciones'] ?? $d['total_general']],
             ['Actividades aprobadas incluidas', $d['total_actividades']],
             ['Municipios con registros', $d['total_municipios']],
         ] as [$etiqueta, $valor]) {
@@ -274,7 +332,17 @@ class EstadisticasController extends Controller
         $tabla('Personas por mes', collect($d['por_mes'])->map(fn ($m) => [$m['mes'], $m['total']])->all());
         $tabla('Personas por Secretaría', collect($d['por_secretaria'])->map(fn ($m) => [$seguro($m['secretaria']), $m['total']])->all());
         $tabla('Organizaciones por Secretaría/Oficina (sector)', collect($d['por_sector'])->map(fn ($m) => [$seguro($m['sector']), $m['total']])->all());
-        $hoja->getColumnDimension('A')->setWidth(48);
+        $tabla('Participaciones por persona', collect($d['recurrencia'] ?? [])->map(fn ($m) => [$m['valor'], $m['total']])->all());
+        $tabla('Actividades por tipo de evento', collect($d['por_tipo_evento'] ?? [])->map(fn ($m) => [$seguro((string) $m['tipo']), $m['actividades']])->all());
+        $tabla('Actividades por estado de aprobación', collect($d['actividades_por_estado'] ?? [])->map(fn ($v, $k) => [$k, $v])->values()->all());
+        $tabla('Personas por Dependencia', collect($d['por_dependencia'] ?? [])->map(fn ($m) => [$seguro($m['dependencia']), $m['total']])->all());
+        foreach ([
+            'categoria' => 'Beneficio — Categoría', 'bien_servicio' => 'Beneficio — Bien y/o servicio', 'programa' => 'Plan de Desarrollo — Programa',
+            'sector_plan' => 'Plan de Desarrollo — Sector', 'gestion_inversion' => 'Gestión / Inversión',
+        ] as $clave => $titulo) {
+            $tabla($titulo.' (personas únicas)', collect($d['beneficios'][$clave] ?? [])->map(fn ($m) => [$seguro((string) $m['valor']), $m['total']])->all());
+        }
+        $hoja->getColumnDimension('A')->setWidth(60);
         $hoja->getColumnDimension('B')->setWidth(14);
 
         // Hoja 2: cruce completo por municipio
