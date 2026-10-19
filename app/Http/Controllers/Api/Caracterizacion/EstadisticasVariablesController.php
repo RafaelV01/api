@@ -99,38 +99,50 @@ class EstadisticasVariablesController extends Controller
 
     private function calcular(Request $request): array
     {
+        $clave = $this->clavePersona();
         $base = $this->consultaBase($request);
 
-        $total = (clone $base)->count('a.id');
-        $conParte2 = (clone $base)->whereRaw('(sa.id IS NOT NULL OR sg.id IS NOT NULL)')->count('a.id');
+        // Participaciones = registros que cumplen los filtros (una persona puede tener varias, una por reunión).
+        $participaciones = (clone $base)->count('a.id');
+        // Persona = documento (tipo + número). Para sus datos personales (zona, género, edad…) se usa su
+        // participación MÁS RECIENTE dentro de los filtros, así cada persona cuenta una sola vez.
+        $ids = (clone $base)->selectRaw('MAX(a.id) as id')->groupByRaw($clave)->pluck('id')->map(fn ($v) => (int) $v)->all();
+        $total = count($ids);
+        $personas = fn () => $this->consultaBase($request)->whereIn('a.id', $ids ?: [0]);
+
+        $conSeguimiento = (int) (clone $base)->whereRaw('(sa.id IS NOT NULL OR sg.id IS NOT NULL)')
+            ->selectRaw("COUNT(DISTINCT {$clave}) as n")->value('n');
 
         $desglose = [];
-        foreach (['zona', 'genero', 'etnico', 'clasificacion', 'sector', 'municipio'] as $clave) {
-            [$columna] = self::VARIABLES_PARTE1[$clave];
-            $desglose[$clave] = (clone $base)->whereNotNull("a.{$columna}")->where("a.{$columna}", '!=', '')
+        foreach (['zona', 'genero', 'etnico', 'clasificacion', 'sector', 'municipio'] as $k) {
+            [$columna] = self::VARIABLES_PARTE1[$k];
+            $desglose[$k] = $personas()->whereNotNull("a.{$columna}")->where("a.{$columna}", '!=', '')
                 ->select("a.{$columna} as valor")->selectRaw('COUNT(*) as total')
                 ->groupBy("a.{$columna}")->orderByDesc('total')->get()
                 ->map(fn ($f) => ['valor' => $f->valor, 'total' => (int) $f->total])->all();
         }
 
-        foreach (self::VARIABLES_PIVOTE as $clave => [$tabla]) {
-            $desglose[$clave] = (clone $base)->join("{$tabla} as p", 'p.asistente_id', '=', 'a.id')
+        foreach (self::VARIABLES_PIVOTE as $k => [$tabla]) {
+            $desglose[$k] = $personas()->join("{$tabla} as p", 'p.asistente_id', '=', 'a.id')
                 ->select('p.valor')->selectRaw('COUNT(*) as total')->groupBy('p.valor')->orderByDesc('total')->get()
                 ->map(fn ($f) => ['valor' => $f->valor, 'total' => (int) $f->total])->all();
         }
 
         $desglose['grupo_etareo'] = [];
         foreach (self::GRUPOS_ETAREOS as $nombre => [$min, $max]) {
-            $n = (clone $base)->whereBetween('a.item15_edad', [max($min, 1), $max])->count('a.id');
+            $n = $personas()->whereBetween('a.item15_edad', [max($min, 1), $max])->count('a.id');
             if ($n > 0) {
                 $desglose['grupo_etareo'][] = ['valor' => $nombre, 'total' => $n];
             }
         }
 
-        foreach (self::VARIABLES_PARTE2 as $clave => [$columna]) {
+        // Beneficio y plan de desarrollo: dependen de CADA reunión (una persona puede recibir un bien o
+        // servicio distinto en cada una), así que se cuentan personas distintas por valor sobre TODAS sus
+        // participaciones; una persona puede aparecer en varios valores.
+        foreach (self::VARIABLES_PARTE2 as $k => [$columna]) {
             $expr = $this->expresionParte2($columna);
-            $desglose[$clave] = (clone $base)->whereRaw("{$expr} IS NOT NULL AND {$expr} != ''")
-                ->selectRaw("{$expr} as valor")->selectRaw('COUNT(*) as total')
+            $desglose[$k] = (clone $base)->whereRaw("{$expr} IS NOT NULL AND {$expr} != ''")
+                ->selectRaw("{$expr} as valor")->selectRaw("COUNT(DISTINCT {$clave}) as total")
                 ->groupByRaw($expr)->orderByDesc('total')->limit(50)->get()
                 ->map(fn ($f) => ['valor' => $f->valor, 'total' => (int) $f->total])->all();
         }
@@ -139,11 +151,18 @@ class EstadisticasVariablesController extends Controller
 
         return [
             'total_personas' => $total,
+            'total_participaciones' => $participaciones,
             'total_actividades' => $actividades,
-            'personas_con_seguimiento' => $conParte2,
+            'personas_con_seguimiento' => $conSeguimiento,
             'desglose' => $desglose,
             'filtros' => $this->filtrosRecibidos($request),
         ];
+    }
+
+    /** Identifica a una persona por su documento (tipo + número), sin importar en cuántas reuniones aparezca. */
+    private function clavePersona(): string
+    {
+        return "CONCAT(UPPER(TRIM(a.item2_tipo_documento)), '|', TRIM(a.item3_numero_documento))";
     }
 
     /** Exporta el mismo resultado a Excel: una hoja de filtros y resumen, una por desglose. */
@@ -157,7 +176,7 @@ class EstadisticasVariablesController extends Controller
         $hoja->fromArray([['Estadísticas por variables — Caracterización de Ciudadanía']], null, 'A1');
         $hoja->getStyle('A1')->getFont()->setBold(true)->setSize(13);
         $fila = 3;
-        foreach ([['Personas', $r['total_personas']], ['Actividades', $r['total_actividades']], ['Personas con seguimiento (Parte 2)', $r['personas_con_seguimiento']]] as $linea) {
+        foreach ([['Personas (únicas)', $r['total_personas']], ['Participaciones (registros en reuniones)', $r['total_participaciones']], ['Actividades', $r['total_actividades']], ['Personas con seguimiento (Parte 2)', $r['personas_con_seguimiento']]] as $linea) {
             $hoja->fromArray($linea, null, "A{$fila}");
             $fila++;
         }
@@ -182,7 +201,7 @@ class EstadisticasVariablesController extends Controller
             }
             $titulo = mb_substr(preg_replace('/[\\\\\/\?\*\[\]:]/', '', $etiquetas[$clave] ?? $clave), 0, 28);
             $h = $libro->createSheet()->setTitle($titulo);
-            $h->fromArray([['Valor', 'Personas', '% del total']], null, 'A1');
+            $h->fromArray([['Valor', 'Personas únicas', '% de las personas']], null, 'A1');
             $h->getStyle('A1:C1')->getFont()->setBold(true);
             foreach ($filas as $i => $f) {
                 $h->setCellValue('A'.($i + 2), $this->sinFormula((string) $f['valor']));

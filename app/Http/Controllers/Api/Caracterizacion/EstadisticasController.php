@@ -26,7 +26,7 @@ class EstadisticasController extends Controller
 
     private function calcular(Request $request): array
     {
-        $aplicarFiltros = function ($query) use ($request) {
+        $filtrar = function ($query) use ($request) {
             $query->join('caracterizacion_actividades', 'caracterizacion_actividades.id', '=', 'caracterizacion_asistentes.actividad_id');
 
             // Por defecto solo cuentan actividades ya APROBADAS: antes de este filtro,
@@ -64,6 +64,20 @@ class EstadisticasController extends Controller
 
             return $query;
         };
+
+        // Una persona que participa en varias reuniones cuenta UNA sola vez: para los datos del ciudadano
+        // (zona, género, edad, …) se usa su participación más reciente dentro de los filtros. Lo que depende
+        // de cada reunión (mes, secretaría, actividades) cuenta personas distintas dentro de cada grupo.
+        $clavePersona = "CONCAT(UPPER(TRIM(caracterizacion_asistentes.item2_tipo_documento)), '|', TRIM(caracterizacion_asistentes.item3_numero_documento))";
+        $idsPersonas = $filtrar(DB::table('caracterizacion_asistentes'))
+            ->selectRaw('MAX(caracterizacion_asistentes.id) as id')
+            ->groupByRaw($clavePersona)->pluck('id')->map(fn ($v) => (int) $v)->all();
+        $aplicarFiltros = function ($query) use ($filtrar, $idsPersonas) {
+            $filtrar($query);
+
+            return $idsPersonas ? $query->whereIn('caracterizacion_asistentes.id', $idsPersonas) : $query->whereRaw('1 = 0');
+        };
+        $participaciones = (int) $filtrar(DB::table('caracterizacion_asistentes'))->count('caracterizacion_asistentes.id');
 
         $principal = $aplicarFiltros(DB::table('caracterizacion_asistentes'))
             ->select('caracterizacion_asistentes.item5_municipio as municipio')
@@ -147,20 +161,20 @@ class EstadisticasController extends Controller
         })->values();
 
         // Indicadores extra para el dashboard (mismos filtros que la tabla principal).
-        $actividades = (int) ($aplicarFiltros(DB::table('caracterizacion_asistentes'))
+        $actividades = (int) ($filtrar(DB::table('caracterizacion_asistentes'))
             ->selectRaw('COUNT(DISTINCT caracterizacion_asistentes.actividad_id) as n')->value('n') ?? 0);
 
-        $porMes = $aplicarFiltros(DB::table('caracterizacion_asistentes'))
+        $porMes = $filtrar(DB::table('caracterizacion_asistentes'))
             ->selectRaw("DATE_FORMAT(caracterizacion_actividades.fecha, '%Y-%m') as mes")
-            ->selectRaw('COUNT(*) as total')
+            ->selectRaw("COUNT(DISTINCT {$clavePersona}) as total")
             ->selectRaw('COUNT(DISTINCT caracterizacion_asistentes.actividad_id) as actividades')
             ->groupBy('mes')->orderBy('mes')->get()
             ->map(fn ($r) => ['mes' => $r->mes, 'total' => (int) $r->total, 'actividades' => (int) $r->actividades])->values();
 
-        $porSecretaria = $aplicarFiltros(DB::table('caracterizacion_asistentes'))
+        $porSecretaria = $filtrar(DB::table('caracterizacion_asistentes'))
             ->join('caracterizacion_secretarias', 'caracterizacion_secretarias.id', '=', 'caracterizacion_actividades.secretaria_id')
             ->select('caracterizacion_secretarias.nombre as secretaria')
-            ->selectRaw('COUNT(*) as total')
+            ->selectRaw("COUNT(DISTINCT {$clavePersona}) as total")
             ->groupBy('caracterizacion_secretarias.nombre')->orderByDesc('total')->get()
             ->map(fn ($r) => ['secretaria' => $r->secretaria, 'total' => (int) $r->total])->values();
 
@@ -174,6 +188,7 @@ class EstadisticasController extends Controller
         return [
             'por_municipio' => $resultado,
             'total_general' => $resultado->sum('total_poblacion_atendida'),
+            'total_participaciones' => $participaciones,
             'total_actividades' => $actividades,
             'total_municipios' => $resultado->count(),
             'por_mes' => $porMes,

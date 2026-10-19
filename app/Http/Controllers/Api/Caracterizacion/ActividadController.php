@@ -183,8 +183,8 @@ class ActividadController extends Controller
             'item23_fecha_beneficio' => 'nullable|date',
             'item24_gestion_inversion' => 'nullable|in:Gestión,Inversión',
             'item26_sector' => 'nullable|string|max:150',
-            'item26_programa' => 'nullable|string|max:150',
-            'item26_meta_producto' => 'nullable|string|max:255',
+            'item26_programa' => 'nullable|string|max:255',
+            'item26_meta_producto' => 'nullable|string|max:800',
             'item27_nombre_proyecto' => 'nullable|string|max:255',
             'item28_ods' => ['nullable', 'string', $opcion('ods')],
             'item28_ddhh' => ['nullable', 'string', $opcion('ddhh')],
@@ -384,6 +384,7 @@ class ActividadController extends Controller
 
         $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load(resource_path('templates/FO-PDD-19.xlsx'));
         $sheet = $spreadsheet->getSheetByName('FO-PDD-19');
+        $this->agregarEncabezadoInstitucional($sheet, now()->format('d-m-Y'));
 
         // Encabezado genérico del consolidado (no es de una actividad en particular).
         $fechas = $actividades->pluck('fecha')->filter()->sort()->values();
@@ -392,9 +393,9 @@ class ActividadController extends Controller
             : $fechas->first()->format('d/m/Y').' a '.$fechas->last()->format('d/m/Y'));
         $municipios = $actividades->pluck('municipio')->filter()->unique()->values();
 
-        $sheet->setCellValue('C1', $this->sinFormula('CONSOLIDADO DE LISTADOS DE CARACTERIZACIÓN — '.$this->describirAlcance($request).' — '.$actividades->count().' actividad(es)'));
-        $sheet->setCellValue('C2', $rangoFechas);
-        $sheet->setCellValue('Q2', '');
+        $sheet->setCellValue($this->c('C1'), $this->sinFormula('CONSOLIDADO DE LISTADOS DE CARACTERIZACIÓN — '.$this->describirAlcance($request).' — '.$actividades->count().' actividad(es)'));
+        $sheet->setCellValue($this->c('C2'), $rangoFechas);
+        $sheet->setCellValue($this->c('Q2'), '');
         $this->escribirBannerFila3($sheet, 'VARIOS', $municipios->count() === 1 ? (string) $municipios->first() : 'VARIOS', 'Casanare');
         $this->estilizarBanner($sheet);
         $this->ajustarEncabezados($sheet);
@@ -416,7 +417,11 @@ class ActividadController extends Controller
         }
 
         $archivosTemporales = [];
-        $this->volcarFilasExcel($sheet, $items, 8, $archivosTemporales, true);
+        // Con cientos de filas, incrustar una imagen de firma por fila vuelve el archivo enorme y tarda más de lo que
+        // aguanta el servidor: sobre ese tope el consolidado sale sin imágenes (las firmas siguen en el Excel y el PDF de cada actividad).
+        $incluirFirmas = count($items) <= self::MAX_FILAS_CON_FIRMA;
+        $siguiente = $this->volcarFilasExcel($sheet, $items, 8 + self::FILAS_ENCABEZADO, $archivosTemporales, true, $incluirFirmas);
+        $this->ajustarImpresion($sheet, $siguiente);
 
         // Hoja índice: qué actividad aporta cada tramo de filas del consolidado.
         $h2 = $spreadsheet->createSheet()->setTitle('Actividades incluidas');
@@ -427,6 +432,9 @@ class ActividadController extends Controller
         }
         foreach (range('A', 'L') as $col) {
             $h2->getColumnDimension($col)->setAutoSize(true);
+        }
+        if (!$incluirFirmas) {
+            $h2->setCellValue('A'.(count($indice) + 3), 'Nota: este consolidado tiene más de '.self::MAX_FILAS_CON_FIRMA.' filas, por eso la columna FIRMA no lleva imágenes. Las firmas están en el Excel y el PDF de cada actividad.');
         }
 
         $spreadsheet->setActiveSheetIndex($spreadsheet->getIndex($sheet));
@@ -514,16 +522,18 @@ class ActividadController extends Controller
         $templatePath = resource_path('templates/FO-PDD-19.xlsx');
         $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($templatePath);
         $sheet = $spreadsheet->getSheetByName('FO-PDD-19');
+        $this->agregarEncabezadoInstitucional($sheet, optional($actividad->fecha)->format('d-m-Y') ?? now()->format('d-m-Y'));
 
         // ── Encabezado (TEMA / FECHA / HORA / QUIEN DIRIGE / MUNICIPIO / DEPARTAMENTO / TIPO DE EVENTO) ──
-        $sheet->setCellValue('C1', $actividad->tema);
-        $sheet->setCellValue('C2', optional($actividad->fecha)->format('d/m/Y'));
-        $sheet->setCellValue('Q2', \Carbon\Carbon::parse($actividad->hora)->format('h:i A'));
+        $sheet->setCellValue($this->c('C1'), $actividad->tema);
+        $sheet->setCellValue($this->c('C2'), optional($actividad->fecha)->format('d/m/Y'));
+        $sheet->setCellValue($this->c('Q2'), \Carbon\Carbon::parse($actividad->hora)->format('h:i A'));
         $this->escribirBannerFila3($sheet, (string) $actividad->quien_dirige_expone, (string) $actividad->municipio, (string) $actividad->departamento);
         $this->estilizarBanner($sheet);
         $this->ajustarEncabezados($sheet);
 
         $marcarTipoEvento = function (string $celda, string $valorEsperado) use ($sheet, $actividad) {
+            $celda = $this->c($celda);
             $texto = (string) $sheet->getCell($celda)->getValue();
             if ($actividad->tipo_evento === $valorEsperado) {
                 $sheet->setCellValue($celda, 'X  '.$texto);
@@ -531,7 +541,7 @@ class ActividadController extends Controller
         };
         $marcarTipoEvento('AI2', 'asistencia_tecnica');
         $marcarTipoEvento('AI3', 'capacitacion');
-        $lineasAI4 = explode("\n", (string) $sheet->getCell('AI4')->getValue());
+        $lineasAI4 = explode("\n", (string) $sheet->getCell($this->c('AI4'))->getValue());
         foreach ($lineasAI4 as $i => $linea) {
             if ($actividad->tipo_evento === 'socializacion' && str_contains($linea, 'Socialización')) {
                 $lineasAI4[$i] = 'X  '.$linea;
@@ -540,13 +550,14 @@ class ActividadController extends Controller
                 $lineasAI4[$i] = 'X  '.$linea.' '.$actividad->otro_evento_detalle;
             }
         }
-        $sheet->setCellValue('AI4', implode("\n", $lineasAI4));
+        $sheet->setCellValue($this->c('AI4'), implode("\n", $lineasAI4));
 
         // ── Filas de datos (empiezan en la fila 8, igual que en el formato original) ──
         $items = $actividad->asistentes->values()
             ->map(fn ($a, $i) => ['a' => $a, 'seg' => $a->seguimientoPropio ?? $seguimiento, 'n' => $i + 1])->all();
         $archivosTemporales = [];
-        $this->volcarFilasExcel($sheet, $items, 8, $archivosTemporales);
+        $siguiente = $this->volcarFilasExcel($sheet, $items, 8 + self::FILAS_ENCABEZADO, $archivosTemporales);
+        $this->ajustarImpresion($sheet, $siguiente);
 
         // Las demás hojas (INSTRUCTIVO, ACTIVIDAD, PROYECTO) del formato original se
         // conservan tal cual — solo se activa la hoja de datos al abrir el archivo.
@@ -577,7 +588,7 @@ class ActividadController extends Controller
      * @param  array<int, array{a: CaracterizacionAsistente, seg: ?CaracterizacionSeguimiento, n: int}>  $items
      * @return int  la siguiente fila libre
      */
-    private function volcarFilasExcel($sheet, array $items, int $fila, array &$archivosTemporales, bool $copiarEstilo = false): int
+    private function volcarFilasExcel($sheet, array $items, int $fila, array &$archivosTemporales, bool $copiarEstilo = false, bool $incluirFirmas = true): int
     {
         // AG (Canal de Comunicación) y AH (Idiomas) se dejan sin escribir: esos ítems
         // (17 y 18) se eliminaron del formulario, pero la plantilla original conserva
@@ -585,12 +596,12 @@ class ActividadController extends Controller
         $colsParte1 = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AD', 'AE', 'AF', 'AI'];
         $colsParte2 = ['AJ', 'AK', 'AL', 'AM', 'AN', 'AO', 'AP', 'AQ', 'AR', 'AS', 'AT', 'AU', 'AV', 'AW', 'AX', 'AY', 'AZ', 'BA', 'BB', 'BC'];
 
+        $primera = $fila;
         foreach ($items as ['a' => $a, 'seg' => $seguimiento, 'n' => $numero]) {
-            if ($fila > 8) {
+            if ($fila > $primera) {
                 // La plantilla solo trae formateadas unas pocas filas: en el consolidado cada fila
                 // nueva copia el estilo (bordes, alineación) y la altura de la primera fila de datos.
-                $sheet->duplicateStyle($sheet->getStyle('A8:BC8'), "A{$fila}:BC{$fila}");
-                $sheet->getRowDimension($fila)->setRowHeight($sheet->getRowDimension(8)->getRowHeight());
+                                $sheet->getRowDimension($fila)->setRowHeight($sheet->getRowDimension($primera)->getRowHeight());
             }
             $problematicas = $a->problematicas->pluck('valor')->all();
             $enfoques = $a->enfoques->pluck('valor')->all();
@@ -640,7 +651,7 @@ class ActividadController extends Controller
             // Una firma ilegible (imagen dañada) no debe tumbar toda la exportación — sobre todo en el
             // consolidado, con cientos de filas: se omite esa imagen y se registra el aviso.
             try {
-            if ($a->firma_ciudadano_base64 && str_contains($a->firma_ciudadano_base64, ',')) {
+            if ($incluirFirmas && $a->firma_ciudadano_base64 && str_contains($a->firma_ciudadano_base64, ',')) {
                 [, $base64Data] = explode(',', $a->firma_ciudadano_base64, 2);
                 $binario = base64_decode($base64Data);
                 if ($binario !== false) {
@@ -714,11 +725,84 @@ class ActividadController extends Controller
                 }
             }
 
-            $this->estilizarFila($sheet, $fila);
             $fila++;
         }
 
+        if ($fila > $primera) {
+            $this->estilizarFilas($sheet, $primera, $fila - 1);
+        }
+
         return $fila;
+    }
+
+    /** Filas que se agregan arriba de la plantilla para el logo y el título institucionales. */
+    private const FILAS_ENCABEZADO = 5;
+
+    /** Máximo de filas del consolidado que llevan imagen de firma. */
+    private const MAX_FILAS_CON_FIRMA = 400;
+
+    /** Desplaza una referencia ("C1", "A3:J3") por las filas del encabezado institucional agregado. */
+    private function c(string $ref): string
+    {
+        return preg_replace_callback('/\d+/', fn ($m) => (string) ((int) $m[0] + self::FILAS_ENCABEZADO), $ref);
+    }
+
+    /**
+     * La plantilla original muestra el logo y el título solo en el ENCABEZADO DE IMPRESIÓN (no se ven al abrir
+     * el archivo). Se agregan 5 filas arriba con lo mismo que lleva el PDF: logo de la Gobernación a la
+     * izquierda y, a la derecha, título, código del formato, fecha y versión. El encabezado de impresión se
+     * quita para que no salga duplicado al imprimir.
+     */
+    private function agregarEncabezadoInstitucional($sheet, string $fecha): void
+    {
+        $sheet->insertNewRowBefore(1, self::FILAS_ENCABEZADO);
+        for ($i = 1; $i <= self::FILAS_ENCABEZADO; $i++) {
+            $sheet->getRowDimension($i)->setRowHeight(19);
+        }
+        // Las columnas de la plantilla traen borde por defecto: el bloque del logo va sin bordes ni relleno, como en el PDF.
+        $bloque = $sheet->getStyle('A1:AI'.self::FILAS_ENCABEZADO);
+        $bloque->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_NONE);
+        $bloque->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_NONE);
+
+        $logo = public_path('icons/gobernacion_nit.png');
+        if (is_file($logo)) {
+            try {
+                $d = new \PhpOffice\PhpSpreadsheet\Worksheet\Drawing();
+                $d->setName('Logo Gobernación de Casanare');
+                $d->setPath($logo);
+                $d->setHeight(118);
+                $d->setCoordinates('A1');
+                $d->setOffsetX(8);
+                $d->setOffsetY(3);
+                $d->setWorksheet($sheet);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('Excel: no se pudo incrustar el logo: '.$e->getMessage());
+            }
+        }
+
+        $derecha = \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT;
+        $lineas = [
+            1 => ['CONTROL DE ASISTENCIA TECNICA Y CARACTERIZACION DE CIUDADANÍA', 12, true],
+            2 => ['FO-PDD-19', 9, false],
+            3 => [$fecha, 9, false],
+            4 => ['V.08', 9, false],
+        ];
+        foreach ($lineas as $fila => [$texto, $tam, $negrita]) {
+            $sheet->mergeCells("P{$fila}:AI{$fila}");
+            $sheet->setCellValue("P{$fila}", $texto);
+            $sheet->getStyle("P{$fila}")->getFont()->setName('Arial')->setSize($tam)->setBold($negrita);
+            $sheet->getStyle("P{$fila}")->getAlignment()->setHorizontal($derecha)
+                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER);
+        }
+
+        $sheet->getHeaderFooter()->setOddHeader('');
+    }
+
+    /** Área de impresión completa (la de la plantilla solo cubría 7 filas de datos). */
+    private function ajustarImpresion($sheet, int $siguienteFila): void
+    {
+        $ultima = max($siguienteFila - 1, 14 + self::FILAS_ENCABEZADO);
+        $sheet->getPageSetup()->setPrintArea('A1:AI'.$ultima);
     }
 
     /**
@@ -728,10 +812,10 @@ class ActividadController extends Controller
      */
     private function escribirBannerFila3($sheet, string $quienDirige, string $municipio, string $departamento): void
     {
-        $sheet->mergeCells('A3:J3');
-        $sheet->setCellValue('A3', $this->sinFormula('QUIEN DIRIGE Y/O EXPONE: '.$quienDirige.'     FIRMA: ____________     MUNICIPIO: '.$municipio));
-        $sheet->setCellValue('K3', '');
-        $sheet->setCellValue('W3', $this->sinFormula($departamento));
+        $sheet->mergeCells($this->c('A3:J3'));
+        $sheet->setCellValue($this->c('A3'), $this->sinFormula('QUIEN DIRIGE Y/O EXPONE: '.$quienDirige.'     FIRMA: ____________     MUNICIPIO: '.$municipio));
+        $sheet->setCellValue($this->c('K3'), '');
+        $sheet->setCellValue($this->c('W3'), $this->sinFormula($departamento));
     }
 
     /**
@@ -740,46 +824,48 @@ class ActividadController extends Controller
      */
     private function ajustarEncabezados($sheet): void
     {
-        $sheet->setCellValue('C5', "Tipo\nDocu-\nmento (2)");
-        $sheet->getStyle('C5')->getAlignment()->setWrapText(true);
-        $sheet->getStyle('C5')->getFont()->setSize(8);
+        [$c5, $k6] = [$this->c('C5'), $this->c('K6')];
+        $sheet->setCellValue($c5, "Tipo\nDocu-\nmento (2)");
+        $sheet->getStyle($c5)->getAlignment()->setWrapText(true);
+        $sheet->getStyle($c5)->getFont()->setSize(8);
 
-        $sheet->setCellValue('K6', "Mujer Hombre\nNo Binario\n(T) Transgénero");
-        $sheet->getStyle('K6')->getAlignment()->setWrapText(true);
-        $sheet->getStyle('K6')->getFont()->setSize(7);
+        $sheet->setCellValue($k6, "Mujer Hombre\nNo Binario\n(T) Transgénero");
+        $sheet->getStyle($k6)->getAlignment()->setWrapText(true);
+        $sheet->getStyle($k6)->getFont()->setSize(7);
     }
 
     /** Valores del encabezado con la misma alineación y fuente (antes cada celda tenía la suya). */
     private function estilizarBanner($sheet): void
     {
         foreach (['C1', 'C2', 'Q2', 'W3'] as $celda) {
+            $celda = $this->c($celda);
             $sheet->getStyle($celda)->getFont()->setName('Arial')->setSize(10)->setBold(false);
             $sheet->getStyle($celda)->getAlignment()
                 ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER)
                 ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER)
                 ->setShrinkToFit(true);
         }
-        $sheet->getStyle('A3')->getAlignment()
+        $sheet->getStyle($this->c('A3'))->getAlignment()
             ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_LEFT)
             ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER)
             ->setWrapText(false)->setShrinkToFit(true);
     }
 
     /**
-     * Estilo uniforme de una fila de datos: centrado, Arial 10 y ajuste de texto. Las filas que
+     * Estilo uniforme del bloque de filas de datos: centrado, Arial 10 y ajuste de texto. Las filas que
      * trae la plantilla tienen alineaciones distintas entre sí (por eso «Jóvenes» salía a veces
      * a la izquierda y más grande). Las columnas de texto largo van a la izquierda.
      */
-    private function estilizarFila($sheet, int $fila): void
+    private function estilizarFilas($sheet, int $desde, int $hasta): void
     {
-        $rango = "A{$fila}:BC{$fila}";
+        $rango = "A{$desde}:BC{$hasta}";
         $sheet->getStyle($rango)->getFont()->setName('Arial')->setSize(10)->setBold(false);
         $sheet->getStyle($rango)->getAlignment()
             ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER)
             ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER)
             ->setWrapText(true);
         foreach (['B', 'E', 'I', 'AK', 'AL', 'AM', 'AQ', 'AR', 'AS', 'AT', 'AU', 'AV', 'AW', 'AX', 'AY'] as $col) {
-            $sheet->getStyle("{$col}{$fila}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_LEFT);
+            $sheet->getStyle("{$col}{$desde}:{$col}{$hasta}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_LEFT);
         }
         $sheet->getStyle($rango)->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
     }
