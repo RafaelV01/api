@@ -10,6 +10,7 @@ use App\Models\CaracterizacionAsistenteProblematica;
 use App\Models\CaracterizacionColaborador;
 use App\Models\CaracterizacionPerfil;
 use App\Models\CaracterizacionSeguimiento;
+use App\Models\CaracterizacionSeguimientoAsistente;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -118,7 +119,7 @@ class ActividadController extends Controller
         $this->autorizarAcceso($actividad);
 
         $actividad->load(['dependencia', 'secretaria', 'creador', 'seguimiento', 'colaboradores.usuario', 'asistentes' => function ($q) {
-            $q->with(['problematicas', 'enfoques']);
+            $q->with(['problematicas', 'enfoques', 'seguimientoPropio']);
         }]);
 
         // La lista de colaboradores (incluye invitaciones pendientes/rechazadas con
@@ -141,11 +142,40 @@ class ActividadController extends Controller
     {
         $this->autorizarAcceso($actividad);
 
+        $validated = $request->validate($this->reglasParte2());
+        // El código DANE sale del municipio de la actividad, no de lo que escriba el usuario.
+        $validated['item20_codigo_dane'] = $this->codigoDane($actividad->municipio, $validated['item20_codigo_dane'] ?? null);
+
+        $datos = [
+            ...$validated,
+            'completado_por' => Auth::id(),
+            'completado_en' => now(),
+        ];
+
+        try {
+            $seguimiento = CaracterizacionSeguimiento::updateOrCreate(['actividad_id' => $actividad->id], $datos);
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Colisión rara: el creador y un colaborador guardaron casi al mismo
+            // tiempo la primera vez y ambos intentaron crear la fila (unique en
+            // actividad_id). Para cuando llegamos aquí la otra ya existe, así que
+            // un segundo intento actualiza en vez de chocar de nuevo.
+            $seguimiento = CaracterizacionSeguimiento::updateOrCreate(['actividad_id' => $actividad->id], $datos);
+        }
+
+        return response()->json($seguimiento);
+    }
+
+    /**
+     * Reglas de validación de la Parte 2 (ítems 20–32); las usan el seguimiento general de
+     * la actividad y el seguimiento propio de cada ciudadano.
+     */
+    private function reglasParte2(): array
+    {
         $opcion = fn (string $categoria) => Rule::exists('caracterizacion_opciones', 'valor')
             ->where('categoria', $categoria)
             ->where('activo', true);
 
-        $validated = $request->validate([
+        return [
             'item20_codigo_dane' => 'nullable|string|max:20',
             'item21_categoria' => 'nullable|string|max:150',
             'item21_bien_servicio' => 'nullable|string|max:150',
@@ -165,25 +195,48 @@ class ActividadController extends Controller
             'item32_acto_tipo' => ['nullable', 'string', $opcion('acto_tipo')],
             'item32_numero' => ['nullable', 'string', 'max:50', 'regex:/^[\p{L}\p{N}][\p{L}\p{N} .\-\/]*$/u'],
             'item32_fecha' => 'nullable|date',
-        ]);
-
-        $datos = [
-            ...$validated,
-            'completado_por' => Auth::id(),
-            'completado_en' => now(),
         ];
+    }
 
-        try {
-            $seguimiento = CaracterizacionSeguimiento::updateOrCreate(['actividad_id' => $actividad->id], $datos);
-        } catch (\Illuminate\Database\QueryException $e) {
-            // Colisión rara: el creador y un colaborador guardaron casi al mismo
-            // tiempo la primera vez y ambos intentaron crear la fila (unique en
-            // actividad_id). Para cuando llegamos aquí la otra ya existe, así que
-            // un segundo intento actualiza en vez de chocar de nuevo.
-            $seguimiento = CaracterizacionSeguimiento::updateOrCreate(['actividad_id' => $actividad->id], $datos);
-        }
+    /**
+     * Código DANE del ítem 20: sale del municipio (no se confía en lo que escriba el usuario).
+     * Si el municipio no es de Casanare se conserva el valor enviado, si lo hay.
+     */
+    private function codigoDane(?string $municipio, ?string $enviado): ?string
+    {
+        return \App\Support\CodigoDane::deMunicipio($municipio) ?? ($enviado !== '' ? $enviado : null);
+    }
+
+    /**
+     * Seguimiento (Parte 2) propio de UN ciudadano: sobrescribe al de la actividad solo para él.
+     * Mismo permiso que el seguimiento general (creador, colaborador aceptado, secretaría, admin).
+     */
+    public function completarParte2Asistente(Request $request, CaracterizacionAsistente $asistente)
+    {
+        $actividad = $asistente->actividad;
+        $this->autorizarAcceso($actividad);
+
+        $validated = $request->validate($this->reglasParte2());
+        // El código sale del municipio de ESTE ciudadano (cada uno puede vivir en un municipio distinto).
+        $validated['item20_codigo_dane'] = $this->codigoDane($asistente->item5_municipio, $validated['item20_codigo_dane'] ?? null);
+
+        $seguimiento = CaracterizacionSeguimientoAsistente::updateOrCreate(
+            ['asistente_id' => $asistente->id],
+            [...$validated, 'completado_por' => Auth::id(), 'completado_en' => now()]
+        );
 
         return response()->json($seguimiento);
+    }
+
+    /** Quita el seguimiento propio del ciudadano: vuelve a valer el general de la actividad. */
+    public function quitarParte2Asistente(CaracterizacionAsistente $asistente)
+    {
+        $this->autorizarAcceso($asistente->actividad);
+
+        // delete() sobre la instancia para que Auditable registre quién y qué se quitó.
+        CaracterizacionSeguimientoAsistente::where('asistente_id', $asistente->id)->get()->each->delete();
+
+        return response()->json(['message' => 'El ciudadano vuelve a usar el seguimiento general de la actividad.']);
     }
 
     /**
@@ -323,7 +376,7 @@ class ActividadController extends Controller
     {
         $query = CaracterizacionActividad::with([
             'dependencia', 'secretaria', 'creador', 'seguimiento',
-            'asistentes.problematicas', 'asistentes.enfoques',
+            'asistentes.problematicas', 'asistentes.enfoques', 'asistentes.seguimientoPropio',
         ])->visiblePara(Auth::user())->orderBy('fecha')->orderBy('id');
 
         $this->aplicarFiltros($query, $request);
@@ -333,12 +386,18 @@ class ActividadController extends Controller
         $sheet = $spreadsheet->getSheetByName('FO-PDD-19');
 
         // Encabezado genérico del consolidado (no es de una actividad en particular).
-        $sheet->setCellValue('C1', 'CONSOLIDADO — '.$this->describirAlcance($request));
-        $sheet->setCellValue('C2', now()->format('d/m/Y'));
-        $sheet->setCellValue('Q2', now()->format('h:i A'));
-        $sheet->setCellValue('A3', 'CONSOLIDADO DE LISTADOS DE CARACTERIZACIÓN — '.$actividades->count()
-            .' actividad(es)          FIRMA: ______________          MUNICIPIO: Varios');
-        $sheet->setCellValue('W3', 'Casanare');
+        $fechas = $actividades->pluck('fecha')->filter()->sort()->values();
+        $rangoFechas = $fechas->isEmpty() ? '' : ($fechas->first()->format('d/m/Y') === $fechas->last()->format('d/m/Y')
+            ? $fechas->first()->format('d/m/Y')
+            : $fechas->first()->format('d/m/Y').' a '.$fechas->last()->format('d/m/Y'));
+        $municipios = $actividades->pluck('municipio')->filter()->unique()->values();
+
+        $sheet->setCellValue('C1', $this->sinFormula('CONSOLIDADO DE LISTADOS DE CARACTERIZACIÓN — '.$this->describirAlcance($request).' — '.$actividades->count().' actividad(es)'));
+        $sheet->setCellValue('C2', $rangoFechas);
+        $sheet->setCellValue('Q2', '');
+        $this->escribirBannerFila3($sheet, 'VARIOS', $municipios->count() === 1 ? (string) $municipios->first() : 'VARIOS', 'Casanare');
+        $this->estilizarBanner($sheet);
+        $this->ajustarEncabezados($sheet);
 
         $items = [];
         $indice = [];
@@ -346,7 +405,7 @@ class ActividadController extends Controller
         foreach ($actividades as $act) {
             $desde = $n + 1;
             foreach ($act->asistentes as $a) {
-                $items[] = ['a' => $a, 'seg' => $act->seguimiento, 'n' => ++$n];
+                $items[] = ['a' => $a, 'seg' => $a->seguimientoPropio ?? $act->seguimiento, 'n' => ++$n];
             }
             $indice[] = [
                 $act->codigo, $act->tema, optional($act->fecha)->format('d/m/Y'), $act->municipio,
@@ -427,7 +486,7 @@ class ActividadController extends Controller
     {
         $this->autorizarAcceso($actividad);
 
-        $actividad->load(['asistentes.problematicas', 'asistentes.enfoques', 'dependencia', 'secretaria', 'seguimiento']);
+        $actividad->load(['asistentes.problematicas', 'asistentes.enfoques', 'asistentes.seguimientoPropio', 'dependencia', 'secretaria', 'seguimiento']);
 
         $pdf = Pdf::loadView('pdf.caracterizacion', ['actividad' => $actividad]);
 
@@ -460,9 +519,9 @@ class ActividadController extends Controller
         $sheet->setCellValue('C1', $actividad->tema);
         $sheet->setCellValue('C2', optional($actividad->fecha)->format('d/m/Y'));
         $sheet->setCellValue('Q2', \Carbon\Carbon::parse($actividad->hora)->format('h:i A'));
-        $sheet->setCellValue('A3', 'QUIEN DIRIGE Y/O EXPONE: '.$actividad->quien_dirige_expone
-            .'          FIRMA: ______________          MUNICIPIO: '.$actividad->municipio);
-        $sheet->setCellValue('W3', $actividad->departamento);
+        $this->escribirBannerFila3($sheet, (string) $actividad->quien_dirige_expone, (string) $actividad->municipio, (string) $actividad->departamento);
+        $this->estilizarBanner($sheet);
+        $this->ajustarEncabezados($sheet);
 
         $marcarTipoEvento = function (string $celda, string $valorEsperado) use ($sheet, $actividad) {
             $texto = (string) $sheet->getCell($celda)->getValue();
@@ -485,7 +544,7 @@ class ActividadController extends Controller
 
         // ── Filas de datos (empiezan en la fila 8, igual que en el formato original) ──
         $items = $actividad->asistentes->values()
-            ->map(fn ($a, $i) => ['a' => $a, 'seg' => $seguimiento, 'n' => $i + 1])->all();
+            ->map(fn ($a, $i) => ['a' => $a, 'seg' => $a->seguimientoPropio ?? $seguimiento, 'n' => $i + 1])->all();
         $archivosTemporales = [];
         $this->volcarFilasExcel($sheet, $items, 8, $archivosTemporales);
 
@@ -527,7 +586,7 @@ class ActividadController extends Controller
         $colsParte2 = ['AJ', 'AK', 'AL', 'AM', 'AN', 'AO', 'AP', 'AQ', 'AR', 'AS', 'AT', 'AU', 'AV', 'AW', 'AX', 'AY', 'AZ', 'BA', 'BB', 'BC'];
 
         foreach ($items as ['a' => $a, 'seg' => $seguimiento, 'n' => $numero]) {
-            if ($copiarEstilo && $fila > 8) {
+            if ($fila > 8) {
                 // La plantilla solo trae formateadas unas pocas filas: en el consolidado cada fila
                 // nueva copia el estilo (bordes, alineación) y la altura de la primera fila de datos.
                 $sheet->duplicateStyle($sheet->getStyle('A8:BC8'), "A{$fila}:BC{$fila}");
@@ -561,7 +620,7 @@ class ActividadController extends Controller
                 $marca(in_array('Salud', $problematicas)),
                 $marca(in_array('Cultural', $problematicas)),
                 $marca(in_array('Educativa', $problematicas)),
-                $a->sector_codigo ? $a->sector_codigo.($a->sector_sigla ? "\n".$a->sector_sigla : '') : null,
+                $a->sector_codigo,
                 $marca($a->item13_clasificacion_organizacion === 'Con Ánimo de Lucro'),
                 $marca($a->item13_clasificacion_organizacion === 'Sin Ánimo de Lucro'),
                 $marca(in_array('Discapacidad', $enfoques)),
@@ -577,8 +636,6 @@ class ActividadController extends Controller
                     $sheet->setCellValue("{$col}{$fila}", $valoresParte1[$i]);
                 }
             }
-            // El sector lleva el número y, en una segunda línea, la sigla: se activa el ajuste de texto.
-            $sheet->getStyle("X{$fila}")->getAlignment()->setWrapText(true);
 
             // Una firma ilegible (imagen dañada) no debe tumbar toda la exportación — sobre todo en el
             // consolidado, con cientos de filas: se omite esa imagen y se registra el aviso.
@@ -629,7 +686,8 @@ class ActividadController extends Controller
             // repite los datos del proyecto/beneficio en cada fila. La única excepción es el grupo
             // etáreo (ítem 25): ese sigue siendo por persona, calculado de la edad propia de cada fila.
             $valoresParte2 = [
-                $seguimiento?->item20_codigo_dane,
+                // El código sale del municipio de cada ciudadano; si no es de Casanare, el que tenga el seguimiento.
+                \App\Support\CodigoDane::deMunicipio($a->item5_municipio) ?? $seguimiento?->item20_codigo_dane,
                 $seguimiento?->item21_categoria,
                 $seguimiento?->item21_bien_servicio,
                 $seguimiento?->item22_descripcion_beneficio,
@@ -652,14 +710,78 @@ class ActividadController extends Controller
             ];
             foreach ($colsParte2 as $i => $col) {
                 if ($valoresParte2[$i] !== null) {
-                    $sheet->setCellValue("{$col}{$fila}", $valoresParte2[$i]);
+                    $sheet->setCellValue("{$col}{$fila}", is_string($valoresParte2[$i]) ? $this->sinFormula($valoresParte2[$i]) : $valoresParte2[$i]);
                 }
             }
 
+            $this->estilizarFila($sheet, $fila);
             $fila++;
         }
 
         return $fila;
+    }
+
+    /**
+     * Fila 3 del encabezado: «QUIEN DIRIGE», FIRMA y MUNICIPIO van en una sola celda que se
+     * combina de A a N y se reduce para caber; antes el texto largo se cortaba al llegar a
+     * la celda «DEPARTAMENTO» y el municipio no se veía.
+     */
+    private function escribirBannerFila3($sheet, string $quienDirige, string $municipio, string $departamento): void
+    {
+        $sheet->mergeCells('A3:J3');
+        $sheet->setCellValue('A3', $this->sinFormula('QUIEN DIRIGE Y/O EXPONE: '.$quienDirige.'     FIRMA: ____________     MUNICIPIO: '.$municipio));
+        $sheet->setCellValue('K3', '');
+        $sheet->setCellValue('W3', $this->sinFormula($departamento));
+    }
+
+    /**
+     * Títulos de columnas de la plantilla que había que corregir: «Tipo Documento» se salía de su
+     * celda y el enfoque de género debe nombrar también «(T) Transgénero» (la columna T).
+     */
+    private function ajustarEncabezados($sheet): void
+    {
+        $sheet->setCellValue('C5', "Tipo\nDocu-\nmento (2)");
+        $sheet->getStyle('C5')->getAlignment()->setWrapText(true);
+        $sheet->getStyle('C5')->getFont()->setSize(8);
+
+        $sheet->setCellValue('K6', "Mujer Hombre\nNo Binario\n(T) Transgénero");
+        $sheet->getStyle('K6')->getAlignment()->setWrapText(true);
+        $sheet->getStyle('K6')->getFont()->setSize(7);
+    }
+
+    /** Valores del encabezado con la misma alineación y fuente (antes cada celda tenía la suya). */
+    private function estilizarBanner($sheet): void
+    {
+        foreach (['C1', 'C2', 'Q2', 'W3'] as $celda) {
+            $sheet->getStyle($celda)->getFont()->setName('Arial')->setSize(10)->setBold(false);
+            $sheet->getStyle($celda)->getAlignment()
+                ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER)
+                ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER)
+                ->setShrinkToFit(true);
+        }
+        $sheet->getStyle('A3')->getAlignment()
+            ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_LEFT)
+            ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER)
+            ->setWrapText(false)->setShrinkToFit(true);
+    }
+
+    /**
+     * Estilo uniforme de una fila de datos: centrado, Arial 10 y ajuste de texto. Las filas que
+     * trae la plantilla tienen alineaciones distintas entre sí (por eso «Jóvenes» salía a veces
+     * a la izquierda y más grande). Las columnas de texto largo van a la izquierda.
+     */
+    private function estilizarFila($sheet, int $fila): void
+    {
+        $rango = "A{$fila}:BC{$fila}";
+        $sheet->getStyle($rango)->getFont()->setName('Arial')->setSize(10)->setBold(false);
+        $sheet->getStyle($rango)->getAlignment()
+            ->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER)
+            ->setVertical(\PhpOffice\PhpSpreadsheet\Style\Alignment::VERTICAL_CENTER)
+            ->setWrapText(true);
+        foreach (['B', 'E', 'I', 'AK', 'AL', 'AM', 'AQ', 'AR', 'AS', 'AT', 'AU', 'AV', 'AW', 'AX', 'AY'] as $col) {
+            $sheet->getStyle("{$col}{$fila}")->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_LEFT);
+        }
+        $sheet->getStyle($rango)->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
     }
 
     /**

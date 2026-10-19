@@ -67,7 +67,7 @@ class UserController extends Controller
         $user = new User([
             'nombre_completo' => $request->nombre_completo,
             'cargo'           => $request->cargo,
-            'dependencia'     => $request->dependencia,
+            'dependencia'     => $this->textoDependencia($request) ?? $request->dependencia,
             'email'           => $request->email,
             'telefono'        => $request->telefono,
             'password'        => Hash::make($request->password),
@@ -114,6 +114,9 @@ class UserController extends Controller
         $request->validate($rules);
 
         $user->fill($request->only(['nombre_completo', 'cargo', 'dependencia', 'telefono', 'email']));
+        if ($authUser->rol_id === 1 && ($texto = $this->textoDependencia($request))) {
+            $user->dependencia = $texto;
+        }
 
         // Solo el admin puede cambiar el rol, asignado directamente para evitar mass assignment
         if ($authUser->rol_id === 1 && $request->has('rol_id')) {
@@ -135,6 +138,31 @@ class UserController extends Controller
             'message' => 'Usuario actualizado correctamente.',
             'user'    => $this->formatUser($user),
         ]);
+    }
+
+    /**
+     * El campo «dependencia» (texto) del sistema de Reuniones ya no se escribe a mano: se arma con la
+     * secretaría y la dependencia elegidas en los desplegables («Secretaría — Dependencia»), para que
+     * toda la gente quede asociada a una dependencia real. Null si no se envió ninguna.
+     */
+    private function textoDependencia(Request $request): ?string
+    {
+        $ids = $request->validate([
+            'caracterizacion_secretaria_id' => 'nullable|integer|exists:caracterizacion_secretarias,id',
+            'caracterizacion_dependencia_id' => 'nullable|integer|exists:caracterizacion_dependencias,id',
+        ]);
+
+        $dependencia = !empty($ids['caracterizacion_dependencia_id'])
+            ? \App\Models\CaracterizacionDependencia::with('secretaria')->find($ids['caracterizacion_dependencia_id'])
+            : null;
+        $secretaria = $dependencia?->secretaria
+            ?? (!empty($ids['caracterizacion_secretaria_id']) ? \App\Models\CaracterizacionSecretaria::find($ids['caracterizacion_secretaria_id']) : null);
+
+        if (!$secretaria) {
+            return null;
+        }
+
+        return mb_substr($dependencia ? $secretaria->nombre.' — '.$dependencia->nombre : $secretaria->nombre, 0, 160);
     }
 
     // ─── ADMIN: asigna/actualiza el perfil de Caracterización de un usuario ───

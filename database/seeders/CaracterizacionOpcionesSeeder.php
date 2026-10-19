@@ -29,11 +29,11 @@ class CaracterizacionOpcionesSeeder extends Seeder
         // un resguardo indígena constituido — no en los 13 municipios de Casanare
         // sin resguardo.
         $this->sembrar('ubicacion_urbana', ['Barrio', 'Comuna']);
-        $this->sembrar('ubicacion_rural_estandar', ['Corregimiento']);
+        $this->sembrar('ubicacion_rural_estandar', ['Corregimiento', 'Vereda']);
         // "Resguardo" ya no aplica a ubicacion_rural_estandar (se movió a la nueva
         // categoría con_resguardo) — se desactiva la entrada vieja sin borrarla.
         CaracterizacionOpcion::where('categoria', 'ubicacion_rural_estandar')->where('valor', 'Resguardo')->update(['activo' => false]);
-        $this->sembrar('ubicacion_rural_con_resguardo', ['Corregimiento', 'Resguardo']);
+        $this->sembrar('ubicacion_rural_con_resguardo', ['Corregimiento', 'Resguardo', 'Vereda']);
         $this->sembrar('ubicacion_rural_especial', ['Corregimiento', 'Resguardo', 'Vereda']);
         // Catálogo anterior: se desactiva (no se borra) para no perder el histórico de quién lo usó.
         CaracterizacionOpcion::where('categoria', 'ubicacion_tipo')->update(['activo' => false]);

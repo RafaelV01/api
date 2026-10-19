@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\AsistenciaController;
 use App\Http\Controllers\Api\Caracterizacion\ActividadController;
 use App\Http\Controllers\Api\Caracterizacion\AprobacionController;
 use App\Http\Controllers\Api\Caracterizacion\EstadisticasController;
+use App\Http\Controllers\Api\Caracterizacion\EstadisticasVariablesController;
 use App\Http\Controllers\Api\Caracterizacion\OpcionController;
 use App\Http\Controllers\Api\Caracterizacion\OrgController;
 use App\Http\Controllers\Api\Caracterizacion\PublicController as CaracterizacionPublicController;
@@ -92,6 +93,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/actividades/{actividad}/pdf', [ActividadController::class, 'generarPdf']);
         Route::get('/actividades/{actividad}/excel', [ActividadController::class, 'generarExcel']);
         Route::put('/actividades/{actividad}/parte2', [ActividadController::class, 'completarParte2']);
+        Route::put('/asistentes/{asistente}/seguimiento', [ActividadController::class, 'completarParte2Asistente']);
+        Route::delete('/asistentes/{asistente}/seguimiento', [ActividadController::class, 'quitarParte2Asistente']);
 
         // Colaboradores — el creador de una actividad invita a otro usuario a
         // ayudarle a diligenciar la Parte 2; el invitado acepta/rechaza y, si
@@ -126,6 +129,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::get('/estadisticas', [EstadisticasController::class, 'index']);
             Route::get('/estadisticas/exportar', [EstadisticasController::class, 'exportar']);
+            Route::get('/estadisticas/variables', [EstadisticasVariablesController::class, 'variables']);
+            Route::get('/estadisticas/por-variables', [EstadisticasVariablesController::class, 'index']);
+            Route::get('/estadisticas/por-variables/exportar', [EstadisticasVariablesController::class, 'exportar']);
         });
     });
 });

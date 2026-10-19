@@ -113,7 +113,7 @@
     $fullHeight = [
         [0, 'N°', false, false],
         [1, "Nombres y Apellidos y/o Nombre de la Entidad u Organización Social (1)", false, true],
-        [2, 'Tipo Documento(2)', false, false],
+        [2, 'Tipo<br>Docu-<br>mento (2)', false, false],
         [3, 'Número Documento de Identidad y/o NIT (3)', false, false],
         [4, "Cargo (4)<br>Barrio /Vereda", false, false],
         [5, 'Municipio (5)', false, true],
@@ -141,7 +141,7 @@
 
     // Fila 2: [colIdxInicio, colSpan, etiqueta, ocupaTambienFila3 (=> rotado, igual que el PDF fuente)]
     $row2Items = [
-        [10, 4, "Mujer Hombre<br>No Binario", false],
+        [10, 4, "Mujer Hombre<br>No Binario<br>(T) Transgénero", false],
         [14, 1, 'LGBTIQ+ OSIGD', true],
         [15, 1, 'Indígenas', true],
         [16, 1, "Comun. Negras - Afro-<br>Raizales - Palenqueras", true],
@@ -344,7 +344,7 @@
                     $marca(in_array('Cultural', $problematicas)),
                     $marca(in_array('Educativa', $problematicas)),
                     // Sector: número y, debajo, la sigla (más pequeña) para que quepa en la celda.
-                    $a->sector_codigo ? e($a->sector_codigo).($a->sector_sigla ? '<br><span style="font-size:4.2pt;">'.e($a->sector_sigla).'</span>' : '') : null,
+                    $a->sector_codigo,
                     $marca($a->item13_clasificacion_organizacion === 'Con Ánimo de Lucro'),
                     $marca($a->item13_clasificacion_organizacion === 'Sin Ánimo de Lucro'),
                     $marca(in_array('Discapacidad', $enfoques)),
@@ -395,7 +395,7 @@
                 @else
                     <div class="cell cell-pad data-cell {{ in_array($ci, $leftAligned) ? 'left' : '' }} {{ in_array($valores[$ci], ['X'], true) ? 'x-mark' : '' }}"
                          style="left:{{ $x($ci) }}pt; top:{{ $rowTop }}pt; width:{{ $w($ci) }}pt; height:{{ $rowH }}pt; padding-top:{{ $padTop((string) $valores[$ci], $rowH, 5.6) }}pt;">
-                        @if ($ci === 23){!! $valores[$ci] !!}@else{{ $valores[$ci] }}@endif
+                        {{ $valores[$ci] }}
                     </div>
                 @endif
             @endfor

@@ -95,6 +95,12 @@ class CaracterizacionAsistente extends Model
         return $this->belongsTo(CaracterizacionActividad::class, 'actividad_id');
     }
 
+    /** Seguimiento (Parte 2) propio de este ciudadano; si no existe vale el de la actividad. */
+    public function seguimientoPropio()
+    {
+        return $this->hasOne(CaracterizacionSeguimientoAsistente::class, 'asistente_id');
+    }
+
     public function problematicas()
     {
         return $this->hasMany(CaracterizacionAsistenteProblematica::class, 'asistente_id');
