@@ -820,6 +820,9 @@ class ActividadController extends Controller
     /** Filas que se agregan arriba de la plantilla para el logo y el título institucionales. */
     private const FILAS_ENCABEZADO = 5;
 
+    /** Ancho mínimo (en caracteres de Excel) de las columnas con marca «X». */
+    private const ANCHO_MINIMO_MARCA = 3.6;
+
     /** Máximo de filas del consolidado que llevan imagen de firma. */
     private const MAX_FILAS_CON_FIRMA = 400;
 
@@ -910,6 +913,16 @@ class ActividadController extends Controller
         // la plantilla conserva sus columnas físicas (AG y AH), así que se ocultan para que el Excel quede igual que el PDF.
         foreach (['AG', 'AH'] as $columnaQuitada) {
             $sheet->getColumnDimension($columnaQuitada)->setVisible(false);
+        }
+
+        // Las columnas que llevan una «X» (zona, género, étnico, problemática, clasificación, enfoque) o el número
+        // del sector son muy angostas en la plantilla (la de «Institucional» mide 1,45): la marca se veía cortada.
+        // Se garantiza un ancho mínimo para que quepa completa.
+        foreach (['G', 'H', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AD'] as $columnaMarca) {
+            $dimension = $sheet->getColumnDimension($columnaMarca);
+            if ($dimension->getWidth() < self::ANCHO_MINIMO_MARCA) {
+                $dimension->setWidth(self::ANCHO_MINIMO_MARCA);
+            }
         }
 
         [$c5, $k6] = [$this->c('C5'), $this->c('K6')];
