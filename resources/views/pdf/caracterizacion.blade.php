@@ -368,7 +368,8 @@
                 @continue(($ci === 32 && ! $a) || ($ci !== 32 && (string) $valores[$ci] === ''))
                 @if ($ci === 32)
                     <div class="cell firma-cell" style="left:{{ $x($ci) }}pt; top:{{ $rowTop }}pt; width:{{ $w($ci) }}pt; height:{{ $rowH }}pt;">
-                        @if ($a && $a->firma_ciudadano_base64)
+                        @php $firmaUri = $a ? $a->firmaDataUri() : null; @endphp
+                        @if ($a && $firmaUri)
                             @php
                                 // max-width/max-height de CSS no es fiable en dompdf para <img>: se calcula
                                 // el tamaño exacto en pt a partir de las dimensiones reales de la firma,
@@ -377,20 +378,17 @@
                                 // (ver nota junto a $padTop) que el resto de celdas de la grilla.
                                 $firmaMaxW = 86; $firmaMaxH = 22;
                                 $firmaDispW = $firmaMaxW; $firmaDispH = $firmaMaxH;
-                                if (str_contains($a->firma_ciudadano_base64, ',')) {
-                                    [, $firmaB64] = explode(',', $a->firma_ciudadano_base64, 2);
-                                    $firmaBin = base64_decode($firmaB64, true);
-                                    $firmaInfo = $firmaBin !== false ? @getimagesizefromstring($firmaBin) : false;
-                                    if ($firmaInfo) {
-                                        $firmaScale = min($firmaMaxW / $firmaInfo[0], $firmaMaxH / $firmaInfo[1], 1);
-                                        $firmaDispW = round($firmaInfo[0] * $firmaScale, 1);
-                                        $firmaDispH = round($firmaInfo[1] * $firmaScale, 1);
-                                    }
+                                $firmaBin = base64_decode(explode(',', $firmaUri, 2)[1] ?? '', true);
+                                $firmaInfo = $firmaBin !== false ? @getimagesizefromstring($firmaBin) : false;
+                                if ($firmaInfo) {
+                                    $firmaScale = min($firmaMaxW / $firmaInfo[0], $firmaMaxH / $firmaInfo[1], 1);
+                                    $firmaDispW = round($firmaInfo[0] * $firmaScale, 1);
+                                    $firmaDispH = round($firmaInfo[1] * $firmaScale, 1);
                                 }
                                 $firmaPadTop = max(0, round(($rowH - $firmaDispH) / 2, 1));
                             @endphp
                             <div style="padding-top:{{ $firmaPadTop }}pt;">
-                                <img class="firma-img" style="width:{{ $firmaDispW }}pt; height:{{ $firmaDispH }}pt;" src="{{ $a->firma_ciudadano_base64 }}">
+                                <img class="firma-img" style="width:{{ $firmaDispW }}pt; height:{{ $firmaDispH }}pt;" src="{{ $firmaUri }}">
                             </div>
                         @endif
                     </div>

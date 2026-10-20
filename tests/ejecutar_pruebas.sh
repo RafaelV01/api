@@ -31,7 +31,8 @@ echo "→ Migraciones, catálogos y pruebas…"
 docker run --rm --network "$RED" \
   -e DB_HOST="$BD" -e DB_PASSWORD=pruebas -e DB_DATABASE=asistencia_test -e DB_USERNAME=root -e APP_ENV=testing \
   -e APP_KEY=base64:$(head -c 32 /dev/urandom | base64) \
-  asistencia-api:pruebas sh -c "composer install --no-interaction --prefer-dist -q 2>&1 | tail -2; \
+  asistencia-api:pruebas sh -c "mkdir -p storage/framework/views storage/framework/cache/data storage/framework/sessions storage/logs; \
+    composer install --no-interaction --prefer-dist -q 2>&1 | tail -2; \
     php artisan migrate --force 2>&1 | tail -3; \
     php artisan db:seed --class=CaracterizacionOpcionesSeeder --force 2>&1 | tail -1; \
     php -d memory_limit=1G vendor/bin/phpunit --testdox $*"

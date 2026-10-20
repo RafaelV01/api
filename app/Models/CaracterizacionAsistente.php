@@ -21,7 +21,7 @@ class CaracterizacionAsistente extends Model
         'item8_contacto_valor', 'item9_genero', 'item10_etnico',
         'item12_sector_organizacion', 'item13_clasificacion_organizacion',
         'item15_edad', 'item16_tamano_grupo_familiar', 'item17_canal_comunicacion',
-        'item18_idioma_lengua_dialecto', 'firma_ciudadano_base64', 'firma_ciudadano_hash',
+        'item18_idioma_lengua_dialecto', 'firma_ciudadano_base64', 'firma_ciudadano_hash', 'firma_ciudadano_archivo',
         'ip_origen', 'user_agent',
         // Parte 2 (ítems 20–32) ya NO vive aquí — ver CaracterizacionSeguimiento: ahora
         // se completa una sola vez por actividad, no por cada ciudadano registrado.
@@ -88,6 +88,39 @@ class CaracterizacionAsistente extends Model
         $valor = $this->item12_sector_organizacion;
 
         return $valor && preg_match('/\(([\p{L}]{2,5})\)\s*$/u', $valor, $m) ? mb_strtoupper($m[1]) : null;
+    }
+
+    /**
+     * Bytes de la firma del ciudadano: del archivo si ya está guardado como tal; si no (firmas anteriores), del base64 de la
+     * base de datos. Null si no hay firma o no se puede leer.
+     */
+    public function firmaBinaria(): ?string
+    {
+        if ($this->firma_ciudadano_archivo) {
+            $bytes = app(\App\Services\FirmasCiudadano::class)->leer($this->firma_ciudadano_archivo);
+            if ($bytes !== null) {
+                return $bytes;
+            }
+        }
+        if ($this->firma_ciudadano_base64 && str_contains($this->firma_ciudadano_base64, ',')) {
+            $bytes = base64_decode(explode(',', $this->firma_ciudadano_base64, 2)[1], true);
+
+            return $bytes === false ? null : $bytes;
+        }
+
+        return null;
+    }
+
+    /** La firma como data URI (para incrustarla en el PDF), venga de archivo o del base64 anterior. */
+    public function firmaDataUri(): ?string
+    {
+        $bytes = $this->firmaBinaria();
+        if ($bytes === null) {
+            return null;
+        }
+        $info = @getimagesizefromstring($bytes);
+
+        return 'data:'.($info['mime'] ?? 'image/jpeg').';base64,'.base64_encode($bytes);
     }
 
     /** Ficha del ciudadano único al que pertenece esta participación. */

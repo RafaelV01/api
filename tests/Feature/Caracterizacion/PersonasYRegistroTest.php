@@ -12,6 +12,12 @@ class PersonasYRegistroTest extends TestCase
 {
     use DatabaseTransactions, DatosCaracterizacion;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        \Illuminate\Support\Facades\Storage::fake('local'); // las firmas no se escriben en el disco real
+    }
+
     private function cuerpo(string $documento, array $cambios = []): array
     {
         return $cambios + [
@@ -19,7 +25,7 @@ class PersonasYRegistroTest extends TestCase
             'item4_cargo_barrio_vereda' => 'Presidente', 'item5_municipio' => 'YOPAL', 'item6_zona' => 'urbana',
             'item7_ubicacion_tipo' => 'Barrio', 'item7_ubicacion_detalle' => 'Centro', 'item8_contacto_valor' => '3001234567',
             'item9_genero' => 'Mujer', 'item15_edad' => 30, 'item16_tamano_grupo_familiar' => 3,
-            'firma_base64' => 'data:image/jpeg;base64,'.base64_encode(str_repeat('x', 200)), 'firma_hash' => hash('sha256', 'f'),
+            'firma_base64' => $this->firmaDePrueba(), 'firma_hash' => hash('sha256', 'f'),
         ];
     }
 

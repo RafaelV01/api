@@ -128,7 +128,11 @@ class PublicController extends Controller
             'item14_enfoques.*' => ['string', $opcion('enfoque_diferencial')],
             'item15_edad' => 'required|integer|min:0|max:120',
             'item16_tamano_grupo_familiar' => 'required|integer|min:1|max:20',
-            'firma_base64' => 'required|string',
+            'firma_base64' => ['required', 'string', 'max:1000000', function ($atributo, $valor, $fallar) {
+                if (! app(\App\Services\FirmasCiudadano::class)->esValida($valor)) {
+                    $fallar('La firma no es una imagen válida (JPEG o PNG, de tamaño razonable).');
+                }
+            }],
             'firma_hash' => 'required|string|size:64',
         ], $mensajes);
 
@@ -182,7 +186,8 @@ class PublicController extends Controller
                 'item13_clasificacion_organizacion' => $validated['item13_clasificacion_organizacion'] ?? null,
                 'item15_edad' => $validated['item15_edad'],
                 'item16_tamano_grupo_familiar' => $validated['item16_tamano_grupo_familiar'],
-                'firma_ciudadano_base64' => $validated['firma_base64'],
+                // La firma se guarda como archivo (no como texto dentro de la base de datos)
+                'firma_ciudadano_archivo' => app(\App\Services\FirmasCiudadano::class)->guardar($validated['firma_base64'], $actividad->id),
                 'firma_ciudadano_hash' => $validated['firma_hash'],
                 'ip_origen' => $request->ip(),
                 'user_agent' => substr((string) $request->userAgent(), 0, 255),

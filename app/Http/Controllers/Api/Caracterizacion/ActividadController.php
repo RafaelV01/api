@@ -782,10 +782,9 @@ class ActividadController extends Controller
             // Una firma ilegible (imagen dañada) no debe tumbar toda la exportación — sobre todo en el
             // consolidado, con cientos de filas: se omite esa imagen y se registra el aviso.
             try {
-            if ($incluirFirmas && $a->firma_ciudadano_base64 && str_contains($a->firma_ciudadano_base64, ',')) {
-                [, $base64Data] = explode(',', $a->firma_ciudadano_base64, 2);
-                $binario = base64_decode($base64Data);
-                if ($binario !== false) {
+            $binario = $incluirFirmas ? $a->firmaBinaria() : null;
+            if ($binario !== null) {
+                {
                     $tmpImg = tempnam(sys_get_temp_dir(), 'firma_').'.jpg';
                     file_put_contents($tmpImg, $binario);
                     $archivosTemporales[] = $tmpImg;

@@ -17,6 +17,20 @@ use Illuminate\Support\Str;
  */
 trait DatosCaracterizacion
 {
+    /** Una firma de prueba (PNG real con un garabato) como data URI, igual a lo que envía el navegador. */
+    protected function firmaDePrueba(int $ancho = 300, int $alto = 100): string
+    {
+        $im = imagecreatetruecolor($ancho, $alto);
+        imagefill($im, 0, 0, imagecolorallocate($im, 255, 255, 255));
+        imageline($im, 10, $alto - 10, $ancho - 10, 10, imagecolorallocate($im, 0, 0, 120));
+        ob_start();
+        imagepng($im);
+        $png = (string) ob_get_clean();
+        imagedestroy($im);
+
+        return 'data:image/png;base64,'.base64_encode($png);
+    }
+
     protected function crearSecretariaYDependencia(): array
     {
         $sec = CaracterizacionSecretaria::create(['nombre' => 'ZZ Secretaría '.Str::random(6), 'activo' => true]);
