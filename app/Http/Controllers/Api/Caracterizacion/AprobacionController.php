@@ -26,7 +26,7 @@ class AprobacionController extends Controller
             'observacion' => 'nullable|string|max:500',
         ]);
 
-        $query = CaracterizacionActividad::query()->where('estado_aprobacion', 'pendiente');
+        $query = CaracterizacionActividad::query()->whereIn('estado_aprobacion', ['pendiente', 'revision_supervisor']);
 
         $query = match ($validated['tipo_objetivo']) {
             'actividad' => $query->where('id', $validated['objetivo_id']),

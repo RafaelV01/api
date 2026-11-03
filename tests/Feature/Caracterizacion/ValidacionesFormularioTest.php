@@ -27,7 +27,7 @@ class ValidacionesFormularioTest extends TestCase
             'item4_cargo_barrio_vereda' => 'Presidente', 'item5_municipio' => 'YOPAL', 'item6_zona' => 'urbana',
             'item7_ubicacion_tipo' => 'Barrio', 'item8_contacto_valor' => '3001234567',
             'item9_genero' => 'Mujer', 'fecha_nacimiento' => '1990-03-15', 'item16_tamano_grupo_familiar' => 4,
-            'firma_base64' => $this->firmaDePrueba(), 'firma_hash' => hash('sha256', 'f'),
+            'acepta_politica' => true, 'firma_base64' => $this->firmaDePrueba(), 'firma_hash' => hash('sha256', 'f'),
         ];
     }
 
@@ -110,6 +110,69 @@ class ValidacionesFormularioTest extends TestCase
 
         $this->putJson("/api/caracterizacion/actividades/{$a->id}/parte2", ['item31_total_beneficiarios' => 500, 'item22_descripcion_beneficio' => 'Apoyo'])->assertOk();
         $this->assertNull(optional($a->fresh()->seguimiento)->item31_total_beneficiarios);
+    }
+
+    public function test_sin_aceptar_la_politica_de_datos_no_hay_registro_y_queda_constancia_al_aceptar(): void
+    {
+        [$a] = $this->actividad();
+        $url = "/api/caracterizacion/registrar/{$a->slug_acceso}";
+
+        $sinAceptar = $this->cuerpo('700100031');
+        unset($sinAceptar['acepta_politica']);
+        $this->postJson($url, $sinAceptar)->assertStatus(422)->assertJsonValidationErrors('acepta_politica');
+        $this->postJson($url, $this->cuerpo('700100031', ['acepta_politica' => false]))->assertStatus(422)->assertJsonValidationErrors('acepta_politica');
+        $this->assertSame(0, CaracterizacionAsistente::where('item3_numero_documento', '700100031')->count());
+
+        $this->postJson($url, $this->cuerpo('700100031'))->assertCreated();
+        $fila = CaracterizacionAsistente::where('item3_numero_documento', '700100031')->first();
+        $this->assertSame(\App\Http\Controllers\Api\Caracterizacion\PublicController::POLITICA_VERSION, $fila->consentimiento_version);
+        $this->assertNotNull($fila->consentimiento_en);
+    }
+
+    public function test_la_firma_electronica_por_consentimiento_reemplaza_al_lienzo(): void
+    {
+        [$a] = $this->actividad();
+        $url = "/api/caracterizacion/registrar/{$a->slug_acceso}";
+        $sinLienzo = fn (array $extra) => $extra + $this->cuerpo('700100032', ['item1_nombre' => 'José Ñandú Pérez', 'firma_base64' => null, 'firma_hash' => null]);
+
+        // Sin la casilla de aceptación no vale
+        $this->postJson($url, $sinLienzo(['firma_modo' => 'electronica']))->assertStatus(422)->assertJsonValidationErrors('firma_electronica_acepta');
+        // Con lienzo vacío y modo normal tampoco
+        $this->postJson($url, $sinLienzo([]))->assertStatus(422)->assertJsonValidationErrors('firma_base64');
+
+        $this->postJson($url, $sinLienzo(['firma_modo' => 'electronica', 'firma_electronica_acepta' => true]))->assertCreated();
+        $fila = CaracterizacionAsistente::where('item3_numero_documento', '700100032')->first();
+        $this->assertSame('electronica', $fila->firma_modo);
+        $this->assertSame(64, strlen($fila->firma_ciudadano_hash));
+        Storage::disk('local')->assertExists($fila->firma_ciudadano_archivo);
+        $this->assertNotNull(getimagesizefromstring(Storage::disk('local')->get($fila->firma_ciudadano_archivo))); // es una imagen real, lista para el PDF/Excel
+    }
+
+    public function test_la_firma_de_quien_dirige_sale_en_el_excel_y_el_pdf(): void
+    {
+        [$a] = $this->actividad();
+        $a->update(['firma_expositor_base64' => $this->firmaDePrueba(), 'firma_expositor_hash' => str_repeat('a', 64)]);
+        $this->postJson("/api/caracterizacion/registrar/{$a->slug_acceso}", $this->cuerpo('700100033'))->assertCreated();
+        Sanctum::actingAs(\App\Models\User::find($a->creador_id));
+
+        $leer = function () use ($a) {
+            $r = $this->get("/api/caracterizacion/actividades/{$a->id}/excel")->assertOk();
+            $ruta = tempnam(sys_get_temp_dir(), 'fx').'.xlsx';
+            file_put_contents($ruta, $r->getContent());
+            $hoja = \PhpOffice\PhpSpreadsheet\IOFactory::load($ruta)->getSheetByName('FO-PDD-19');
+            unlink($ruta);
+
+            return $hoja;
+        };
+        $con = $leer();
+        $nombres = collect($con->getDrawingCollection())->map(fn ($d) => $d->getName())->all();
+        $this->assertContains('FirmaExpositor', $nombres);
+        $this->assertStringContainsString('FIRMA:', (string) $con->getCell('A8')->getValue().(string) $con->getCell('A3')->getValue());
+
+        $a->update(['firma_expositor_base64' => null]);
+        $sin = collect($leer()->getDrawingCollection())->map(fn ($d) => $d->getName())->all();
+        $this->assertNotContains('FirmaExpositor', $sin);
+        $this->get("/api/caracterizacion/actividades/{$a->id}/pdf")->assertOk();
     }
 
     public function test_las_estadisticas_cuentan_a_quienes_prefieren_no_decirlo(): void

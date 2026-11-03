@@ -25,7 +25,7 @@ class PersonasYRegistroTest extends TestCase
             'item4_cargo_barrio_vereda' => 'Presidente', 'item5_municipio' => 'YOPAL', 'item6_zona' => 'urbana',
             'item7_ubicacion_tipo' => 'Barrio', 'item7_ubicacion_detalle' => 'Centro', 'item8_contacto_valor' => '3001234567',
             'item9_genero' => 'Mujer', 'fecha_nacimiento' => '1995-05-10', 'item16_tamano_grupo_familiar' => 3,
-            'firma_base64' => $this->firmaDePrueba(), 'firma_hash' => hash('sha256', 'f'),
+            'acepta_politica' => true, 'firma_base64' => $this->firmaDePrueba(), 'firma_hash' => hash('sha256', 'f'),
         ];
     }
 

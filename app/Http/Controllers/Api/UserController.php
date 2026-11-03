@@ -182,8 +182,9 @@ class UserController extends Controller
     {
         $validated = $request->validate([
             'caracterizacion_rol' => ['nullable', Rule::in(CaracterizacionPerfil::ROLES)],
-            'caracterizacion_secretaria_id' => 'nullable|integer|exists:caracterizacion_secretarias,id',
-            'caracterizacion_dependencia_id' => 'nullable|integer|exists:caracterizacion_dependencias,id|required_if:caracterizacion_rol,'.CaracterizacionPerfil::ROL_CONTRATISTA,
+            // El supervisor se asigna a una secretaría; el referente y el contratista, además, a una dependencia.
+            'caracterizacion_secretaria_id' => 'nullable|integer|exists:caracterizacion_secretarias,id|required_if:caracterizacion_rol,'.CaracterizacionPerfil::ROL_SUPERVISOR.','.CaracterizacionPerfil::ROL_REFERENTE.','.CaracterizacionPerfil::ROL_CONTRATISTA,
+            'caracterizacion_dependencia_id' => 'nullable|integer|exists:caracterizacion_dependencias,id|required_if:caracterizacion_rol,'.CaracterizacionPerfil::ROL_REFERENTE.','.CaracterizacionPerfil::ROL_CONTRATISTA,
             // Contrato del contratista (al terminar, se deshabilita su acceso). Los tres datos van juntos.
             'contrato_numero' => ['nullable', 'string', 'max:60', 'regex:/^[\p{L}\p{N}][\p{L}\p{N} .\-\/]*$/u', 'required_with:contrato_inicio,contrato_fin'],
             'contrato_inicio' => 'nullable|date_format:Y-m-d|required_with:contrato_numero,contrato_fin',
@@ -192,6 +193,15 @@ class UserController extends Controller
             'contrato_fin.after_or_equal' => 'La fecha final del contrato no puede ser anterior a la de inicio.',
             'contrato_numero.regex' => 'El número de contrato solo puede tener letras, números, espacios y . - /',
         ]);
+
+        // Los roles globales (super admin / administrador) solo los asigna o quita un super admin; mientras no exista ninguno,
+        // los asigna el administrador del sistema (quien parte la configuración).
+        $rolAntes = $user->caracterizacionPerfil?->rol;
+        $rolNuevo = $validated['caracterizacion_rol'] ?? null;
+        if ($rolAntes !== $rolNuevo && (in_array($rolNuevo, CaracterizacionPerfil::ROLES_GLOBALES, true) || in_array($rolAntes, CaracterizacionPerfil::ROLES_GLOBALES, true))) {
+            $esSuper = $request->user()->caracterizacionPerfil?->rol === CaracterizacionPerfil::ROL_SUPER_ADMIN;
+            abort_unless($esSuper || ! CaracterizacionPerfil::where('rol', CaracterizacionPerfil::ROL_SUPER_ADMIN)->exists(), 403, 'Solo un super administrador puede asignar o quitar el rol de administrador.');
+        }
 
         if (!$validated['caracterizacion_rol']) {
             // ->delete() sobre la relación (query builder) no dispara el evento
@@ -214,7 +224,7 @@ class UserController extends Controller
         // El contrato vigente (el de fecha final más reciente) se actualiza; si no hay ninguno, se crea.
         if ($validated['caracterizacion_rol'] === CaracterizacionPerfil::ROL_CONTRATISTA && !empty($validated['contrato_numero'])) {
             $datos = ['numero_contrato' => $validated['contrato_numero'], 'fecha_inicio' => $validated['contrato_inicio'], 'fecha_fin' => $validated['contrato_fin'], 'activo' => true];
-            $actual = \App\Models\CaracterizacionContrato::where('usuario_id', $user->id)->orderByDesc('fecha_fin')->first();
+            $actual = \App\Models\CaracterizacionContrato::actualDe($user->id);
             $actual ? $actual->update($datos) : \App\Models\CaracterizacionContrato::create(['usuario_id' => $user->id] + $datos);
         }
     }
@@ -255,6 +265,12 @@ class UserController extends Controller
             return response()->json(['message' => 'La dependencia no pertenece a esa secretaría.'], 422);
         }
         $texto = mb_substr($dependencia->secretaria->nombre.' — '.$dependencia->nombre, 0, 160);
+
+        // Los roles globales solo los asigna un super admin (o el administrador del sistema si aún no existe ninguno).
+        if (in_array($validated['caracterizacion_rol'] ?? null, CaracterizacionPerfil::ROLES_GLOBALES, true)) {
+            $esSuper = $request->user()->caracterizacionPerfil?->rol === CaracterizacionPerfil::ROL_SUPER_ADMIN;
+            abort_unless($esSuper || ! CaracterizacionPerfil::where('rol', CaracterizacionPerfil::ROL_SUPER_ADMIN)->exists(), 403, 'Solo un super administrador puede asignar el rol de administrador.');
+        }
 
         $n = 0;
         \Illuminate\Support\Facades\DB::transaction(function () use ($validated, $dependencia, $texto, &$n) {
@@ -313,7 +329,7 @@ class UserController extends Controller
             'caracterizacion_secretaria_id'  => $user->caracterizacionPerfil?->secretaria_id,
             'caracterizacion_dependencia_id' => $user->caracterizacionPerfil?->dependencia_id,
             'contrato' => (function () use ($user) {
-                $c = \App\Models\CaracterizacionContrato::where('usuario_id', $user->id)->orderByDesc('fecha_fin')->first();
+                $c = \App\Models\CaracterizacionContrato::actualDe($user->id);
 
                 return $c ? ['numero' => $c->numero_contrato, 'inicio' => $c->fecha_inicio->toDateString(), 'fin' => $c->fecha_fin->toDateString(), 'estado' => $c->estado()] : null;
             })(),

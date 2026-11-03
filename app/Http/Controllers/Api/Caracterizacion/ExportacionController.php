@@ -28,7 +28,7 @@ class ExportacionController extends Controller
         $perfil = Auth::user()->caracterizacionPerfil;
         abort_unless($perfil && $perfil->activo, 403, 'No autorizado.');
         // El listado de «Estadísticas por variables» es solo del administrador (igual que su pantalla).
-        abort_if($validated['tipo'] === 'variables' && $perfil->rol !== CaracterizacionPerfil::ROL_ADMINISTRADOR, 403, 'No autorizado.');
+        abort_if($validated['tipo'] === 'variables' && ! $perfil->esGlobal(), 403, 'No autorizado.');
 
         $enCurso = CaracterizacionExportacion::where('usuario_id', Auth::id())->whereIn('estado', ['pendiente', 'procesando'])->count();
         if ($enCurso >= self::MAX_EN_CURSO) {

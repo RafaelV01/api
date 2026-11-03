@@ -18,11 +18,14 @@ class CaracterizacionActividad extends Model
         'firma_expositor_base64', 'firma_expositor_hash', 'municipio', 'departamento',
         'tipo_evento', 'otro_evento_detalle', 'creador_id', 'dependencia_id', 'secretaria_id',
         'estado', 'estado_aprobacion', 'aprobado_por', 'fecha_aprobacion', 'observacion_aprobacion',
+        'enviada_en', 'referente_aprobo_por', 'referente_aprobo_en',
     ];
 
     protected $casts = [
         'fecha' => 'date',
         'fecha_aprobacion' => 'datetime',
+        'enviada_en' => 'datetime',
+        'referente_aprobo_en' => 'datetime',
     ];
 
     public function creador()
@@ -56,8 +59,21 @@ class CaracterizacionActividad extends Model
      */
     public function seguimiento()
     {
-        return $this->hasOne(CaracterizacionSeguimiento::class, 'actividad_id');
+        return $this->hasOne(CaracterizacionSeguimiento::class, 'actividad_id')->oldestOfMany();
     }
+
+    /** Seguimiento de cada contratista de la reunión (el del creador y el de cada colaborador). */
+    public function seguimientos()
+    {
+        return $this->hasMany(CaracterizacionSeguimiento::class, 'actividad_id');
+    }
+
+    // Estado de la revisión: borrador → pendiente (con el referente) → revision_supervisor → aprobada; «rechazada» = devuelta al contratista.
+    public const BORRADOR = 'borrador';
+    public const PENDIENTE = 'pendiente';
+    public const REVISION_SUPERVISOR = 'revision_supervisor';
+    public const APROBADA = 'aprobada';
+    public const RECHAZADA = 'rechazada';
 
     /**
      * Usuarios invitados (pendientes, aceptados o rechazados) a ayudar a completar
@@ -83,12 +99,17 @@ class CaracterizacionActividad extends Model
             return $query->whereRaw('1 = 0');
         }
 
-        if ($perfil->rol === CaracterizacionPerfil::ROL_ADMINISTRADOR) {
+        if ($perfil->esGlobal()) {
             return $query;
         }
 
-        if ($perfil->rol === CaracterizacionPerfil::ROL_SECRETARIA) {
-            return $query->where('secretaria_id', $perfil->secretaria_id);
+        // Supervisor: toda su secretaría. Referente: su dependencia. Un perfil sin la secretaría/dependencia asignada no ve nada.
+        if ($perfil->rol === CaracterizacionPerfil::ROL_SUPERVISOR) {
+            return $perfil->secretaria_id ? $query->where('secretaria_id', $perfil->secretaria_id) : $query->whereRaw('1 = 0');
+        }
+
+        if ($perfil->rol === CaracterizacionPerfil::ROL_REFERENTE) {
+            return $perfil->dependencia_id ? $query->where('dependencia_id', $perfil->dependencia_id) : $query->whereRaw('1 = 0');
         }
 
         return $query->where('creador_id', $user->id);

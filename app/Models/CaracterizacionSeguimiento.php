@@ -13,7 +13,7 @@ class CaracterizacionSeguimiento extends Model
     protected $table = 'caracterizacion_seguimientos';
 
     protected $fillable = [
-        'actividad_id',
+        'actividad_id', 'usuario_id', 'contrato_bloque_id',
         // Parte 2 (ítems 20–32) — una sola vez por actividad, la completa el
         // contratista creador o un colaborador invitado y aceptado.
         'item20_codigo_dane', 'item21_categoria', 'item21_bien_servicio',
@@ -33,6 +33,12 @@ class CaracterizacionSeguimiento extends Model
     public function actividad()
     {
         return $this->belongsTo(CaracterizacionActividad::class, 'actividad_id');
+    }
+
+    /** Contratista al que pertenece este seguimiento (cada contratista de la reunión tiene el suyo). */
+    public function usuario()
+    {
+        return $this->belongsTo(User::class, 'usuario_id');
     }
 
     public function completadoPor()

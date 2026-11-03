@@ -207,7 +207,12 @@
         <tr>
             <td colspan="2" class="lbl">
                 QUIEN DIRIGE Y/O EXPONE: <span style="font-weight:normal;">{{ $actividad->quien_dirige_expone }}</span>
-                &nbsp;&nbsp;&nbsp; FIRMA: ______________
+                &nbsp;&nbsp;&nbsp; FIRMA:
+                @if ($actividad->firma_expositor_base64 && str_starts_with($actividad->firma_expositor_base64, 'data:image/'))
+                    <img src="{{ $actividad->firma_expositor_base64 }}" style="height:26px; vertical-align:middle;" alt="Firma de quien dirige">
+                @else
+                    ______________
+                @endif
                 &nbsp;&nbsp;&nbsp; MUNICIPIO: <span style="font-weight:normal;">{{ $actividad->municipio }}</span>
                 &nbsp;&nbsp;&nbsp; DEPARTAMENTO: <span style="font-weight:normal;">{{ $actividad->departamento }}</span>
             </td>

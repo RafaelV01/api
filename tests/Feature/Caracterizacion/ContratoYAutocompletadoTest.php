@@ -56,7 +56,7 @@ class ContratoYAutocompletadoTest extends TestCase
         [$sec, $dep] = $this->crearSecretariaYDependencia();
         $this->entrar($this->crearUsuario('contratista', $sec, $dep))->assertOk(); // sin contratos: usuarios anteriores
 
-        $supervisor = $this->crearUsuario('secretaria', $sec, null);
+        $supervisor = $this->crearUsuario('supervisor', $sec, null);
         $this->contrato($supervisor, now()->subYear()->toDateString(), now()->subMonths(6)->toDateString());
         $this->entrar($supervisor)->assertOk(); // el bloqueo es solo para contratistas
     }
@@ -104,7 +104,7 @@ class ContratoYAutocompletadoTest extends TestCase
             'item7_ubicacion_tipo' => 'Barrio', 'item7_ubicacion_detalle' => 'Centro', 'item8_contacto_valor' => '3001234567',
             'item9_genero' => 'Mujer', 'fecha_nacimiento' => '1990-03-15', 'item16_tamano_grupo_familiar' => 4,
             'item11_problematicas' => ['Salud'], 'item14_enfoques' => ['Discapacidad'],
-            'firma_base64' => $this->firmaDePrueba(), 'firma_hash' => hash('sha256', 'f'),
+            'acepta_politica' => true, 'firma_base64' => $this->firmaDePrueba(), 'firma_hash' => hash('sha256', 'f'),
         ]);
     }
 

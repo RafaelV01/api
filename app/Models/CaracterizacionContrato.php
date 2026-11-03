@@ -18,6 +18,17 @@ class CaracterizacionContrato extends Model
         return $this->belongsTo(User::class, 'usuario_id');
     }
 
+    public function bloques()
+    {
+        return $this->hasMany(CaracterizacionContratoBloque::class, 'contrato_id')->orderBy('orden');
+    }
+
+    /** Contrato más reciente (el de fecha final mayor) del usuario, o null. */
+    public static function actualDe(int $usuarioId): ?self
+    {
+        return self::where('usuario_id', $usuarioId)->orderByDesc('fecha_inicio')->orderByDesc('id')->first();
+    }
+
     /** Vigente hoy: activo y dentro de sus fechas (la fecha final cuenta completa). */
     public function estaVigente(): bool
     {

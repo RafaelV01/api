@@ -17,6 +17,39 @@ class FirmasCiudadano
     public const ALTO_MAX = 180;
 
     /** ¿Es un data URI de imagen JPEG/PNG de tamaño razonable? (para validar lo que envía el navegador) */
+    /**
+     * Firma electrónica por consentimiento (alternativa accesible al lienzo): una imagen con el nombre, el documento y la fecha,
+     * para que salga en el PDF/Excel como cualquier otra firma. Devuelve un data URI PNG.
+     */
+    public function electronica(string $nombre, string $tipoDocumento, string $numero, \DateTimeInterface $fecha): string
+    {
+        $limpio = function (string $s): string {
+            $s = strtr($s, ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 'ü' => 'u', 'ñ' => 'n', 'Á' => 'A', 'É' => 'E', 'Í' => 'I', 'Ó' => 'O', 'Ú' => 'U', 'Ü' => 'U', 'Ñ' => 'N']);
+
+            return preg_replace('/[^\x20-\x7E]/', '', $s) ?? '';
+        };
+        $lineas = [
+            'FIRMADO ELECTRONICAMENTE',
+            mb_substr($limpio($nombre), 0, 44),
+            mb_substr($limpio($tipoDocumento).' '.$limpio($numero), 0, 44),
+            $fecha->format('d/m/Y H:i'),
+        ];
+
+        $im = imagecreatetruecolor(self::ANCHO_MAX, 110);
+        imagefill($im, 0, 0, imagecolorallocate($im, 255, 255, 255));
+        $tinta = imagecolorallocate($im, 20, 20, 90);
+        foreach ($lineas as $i => $texto) {
+            imagestring($im, $i === 0 ? 3 : 4, 10, 8 + $i * 24, $texto, $tinta);
+        }
+        imagerectangle($im, 1, 1, self::ANCHO_MAX - 2, 108, imagecolorallocate($im, 160, 160, 190));
+        ob_start();
+        imagepng($im);
+        $png = (string) ob_get_clean();
+        imagedestroy($im);
+
+        return 'data:image/png;base64,'.base64_encode($png);
+    }
+
     public function esValida(?string $dataUri): bool
     {
         return $this->decodificar($dataUri ?? '') !== null;

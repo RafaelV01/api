@@ -118,33 +118,87 @@ class ActividadController extends Controller
             'fecha' => 'required|date',
             'hora' => 'required|date_format:H:i',
             'quien_dirige_expone' => ['required', 'string', 'max:255', 'regex:/^[\p{L}][\p{L} .,\'\-()]*$/u'],
-            'firma_expositor_base64' => 'nullable|string',
+            // Firma de quien dirige/expone: aparece en el PDF y el Excel. Debe ser una imagen real (JPEG/PNG) de tamaño razonable.
+            'firma_expositor_base64' => ['nullable', 'string', 'max:1000000', function ($atributo, $valor, $fallar) {
+                if ($valor !== null && ! app(\App\Services\FirmasCiudadano::class)->esValida($valor)) {
+                    $fallar('La firma de quien dirige no es una imagen válida (JPEG o PNG, de tamaño razonable).');
+                }
+            }],
             'firma_expositor_hash' => 'nullable|string|size:64',
             'municipio' => ['required', 'string', Rule::exists('caracterizacion_opciones', 'valor')->where('categoria', 'municipio')],
             'tipo_evento' => 'required|in:asistencia_tecnica,capacitacion,socializacion,otro',
             'otro_evento_detalle' => 'nullable|string|max:300|required_if:tipo_evento,otro',
+            'contrato_bloque_id' => 'nullable|integer',
         ]);
 
-        $actividad = CaracterizacionActividad::create([
-            ...$validated,
-            'codigo' => Str::upper(Str::random(8)),
-            'slug_acceso' => Str::slug($validated['tema']).'-'.uniqid(),
-            'departamento' => 'Casanare',
-            'creador_id' => Auth::id(),
-            'dependencia_id' => $perfil->dependencia_id,
-            'secretaria_id' => $perfil->secretaria_id,
-        ]);
+        // Si el contratista tiene contrato con bloques, el seguimiento de la reunión sale de uno de ellos (se copia al crearla).
+        $bloques = \App\Models\CaracterizacionContratoBloque::delContratoActual(Auth::id());
+        $bloque = null;
+        if ($bloques->isNotEmpty()) {
+            $bloque = $validated['contrato_bloque_id'] ?? null
+                ? $bloques->firstWhere('id', $validated['contrato_bloque_id'])
+                : ($bloques->count() === 1 ? $bloques->first() : null);
+            if (! $bloque) {
+                return response()->json([
+                    'message' => 'Elige a cuál de las actividades de tu contrato corresponde esta reunión.',
+                    'errors' => ['contrato_bloque_id' => ['Elige la actividad de tu contrato.']],
+                ], 422);
+            }
+        }
+
+        $actividad = DB::transaction(function () use ($validated, $perfil, $bloque) {
+            $actividad = CaracterizacionActividad::create([
+                ...collect($validated)->except('contrato_bloque_id')->all(),
+                'codigo' => Str::upper(Str::random(8)),
+                'slug_acceso' => Str::slug($validated['tema']).'-'.uniqid(),
+                'departamento' => 'Casanare',
+                'creador_id' => Auth::id(),
+                'dependencia_id' => $perfil->dependencia_id,
+                'secretaria_id' => $perfil->secretaria_id,
+                // Nace como borrador: el contratista la termina y la envía a revisión (referente → supervisor).
+                'estado_aprobacion' => CaracterizacionActividad::BORRADOR,
+            ]);
+            $bloque?->copiarA($actividad, Auth::id());
+
+            return $actividad;
+        });
 
         return response()->json($actividad, 201);
+    }
+
+    /**
+     * El contratista (creador o colaborador aceptado) elige cuál bloque de su contrato aplica a esta reunión: se copia a su seguimiento.
+     */
+    public function asignarBloque(Request $request, CaracterizacionActividad $actividad)
+    {
+        $this->autorizarAcceso($actividad);
+        abort_unless($this->esParticipante($actividad), 403, 'Solo quien participa en la reunión puede asignar su actividad de contrato.');
+
+        $validated = $request->validate(['contrato_bloque_id' => 'required|integer']);
+        $bloque = \App\Models\CaracterizacionContratoBloque::delContratoActual(Auth::id())->firstWhere('id', $validated['contrato_bloque_id']);
+        abort_unless($bloque, 422, 'Esa actividad no pertenece a tu contrato.');
+
+        return response()->json($bloque->copiarA($actividad, Auth::id()));
+    }
+
+    /** Creador de la reunión o colaborador con invitación aceptada. */
+    private function esParticipante(CaracterizacionActividad $actividad): bool
+    {
+        return Auth::id() === $actividad->creador_id
+            || CaracterizacionColaborador::where('actividad_id', $actividad->id)->where('usuario_id', Auth::id())
+                ->where('estado', CaracterizacionColaborador::ESTADO_ACEPTADO)->exists();
     }
 
     public function show(CaracterizacionActividad $actividad)
     {
         $this->autorizarAcceso($actividad);
 
-        $actividad->load(['dependencia', 'secretaria', 'creador', 'seguimiento', 'colaboradores.usuario', 'asistentes' => function ($q) {
+        $actividad->load(['dependencia', 'secretaria', 'creador', 'seguimientos.usuario:id,nombre_completo', 'colaboradores.usuario', 'asistentes' => function ($q) {
             $q->select(self::COLUMNAS_ASISTENTE)->with(['problematicas', 'enfoques', 'seguimientoPropio']);
         }]);
+        // `seguimiento` = el de quien consulta (si participa con el suyo); si no, el del creador o el primero. `seguimientos` = el de cada contratista.
+        $actividad->setRelation('seguimiento', $actividad->seguimientos->firstWhere('usuario_id', Auth::id())
+            ?? $actividad->seguimientos->firstWhere('usuario_id', $actividad->creador_id) ?? $actividad->seguimientos->first());
         $actividad->makeHidden(['firma_expositor_base64', 'firma_expositor_hash']);
 
         // La lista de colaboradores (incluye invitaciones pendientes/rechazadas con
@@ -177,14 +231,15 @@ class ActividadController extends Controller
             'completado_en' => now(),
         ];
 
+        // Cada contratista de la reunión tiene su propio seguimiento; quien no participa (un revisor o administrador) edita el del creador.
+        $clave = ['actividad_id' => $actividad->id, 'usuario_id' => $this->esParticipante($actividad) ? Auth::id() : $actividad->creador_id];
+
         try {
-            $seguimiento = CaracterizacionSeguimiento::updateOrCreate(['actividad_id' => $actividad->id], $datos);
+            $seguimiento = CaracterizacionSeguimiento::updateOrCreate($clave, $datos);
         } catch (\Illuminate\Database\QueryException $e) {
-            // Colisión rara: el creador y un colaborador guardaron casi al mismo
-            // tiempo la primera vez y ambos intentaron crear la fila (unique en
-            // actividad_id). Para cuando llegamos aquí la otra ya existe, así que
-            // un segundo intento actualiza en vez de chocar de nuevo.
-            $seguimiento = CaracterizacionSeguimiento::updateOrCreate(['actividad_id' => $actividad->id], $datos);
+            // Colisión rara: dos guardados casi simultáneos intentaron crear la misma fila (unique actividad+usuario).
+            // Para cuando llegamos aquí ya existe, así que un segundo intento actualiza en vez de chocar de nuevo.
+            $seguimiento = CaracterizacionSeguimiento::updateOrCreate($clave, $datos);
         }
 
         return response()->json($seguimiento);
@@ -412,6 +467,16 @@ class ActividadController extends Controller
         $colaborador->responded_at = now();
         $colaborador->save();
 
+        // Al aceptar, el seguimiento de su contrato se asigna solo a la reunión (si su contrato tiene un único bloque; si tiene varios,
+        // elige cuál con asignarBloque). Así cada contratista de la reunión queda con su propia caracterización, sin duplicar a las personas.
+        if ($validated['accion'] === CaracterizacionColaborador::ESTADO_ACEPTADO) {
+            $bloques = \App\Models\CaracterizacionContratoBloque::delContratoActual(Auth::id());
+            $actividadColab = CaracterizacionActividad::find($colaborador->actividad_id);
+            if ($actividadColab && $bloques->count() === 1) {
+                $bloques->first()->copiarA($actividadColab, Auth::id());
+            }
+        }
+
         $actividadTema = $colaborador->actividad?->tema ?? CaracterizacionActividad::whereKey($colaborador->actividad_id)->value('tema');
         \App\Models\CaracterizacionNotificacion::enviar(
             (int) $colaborador->invitado_por, 'invitacion_respuesta',
@@ -449,7 +514,7 @@ class ActividadController extends Controller
     public function consolidadoExcel(Request $request)
     {
         $query = CaracterizacionActividad::with([
-            'dependencia', 'secretaria', 'creador', 'seguimiento',
+            'dependencia', 'secretaria', 'creador', 'seguimientos',
             'asistentes.problematicas', 'asistentes.enfoques', 'asistentes.seguimientoPropio',
         ])->visiblePara(Auth::user())->orderBy('fecha')->orderBy('id');
 
@@ -477,16 +542,17 @@ class ActividadController extends Controller
         $items = [];
         $indice = [];
         $n = 0;
+        $vistos = [];
         foreach ($actividades as $act) {
             $desde = $n + 1;
             foreach ($act->asistentes as $a) {
-                $items[] = ['a' => $a, 'seg' => $a->seguimientoPropio ?? $act->seguimiento, 'n' => ++$n];
+                array_push($items, ...$this->itemsDe($a, $act->seguimientos, $n, $vistos));
             }
             $indice[] = [
                 $act->codigo, $act->tema, optional($act->fecha)->format('d/m/Y'), $act->municipio,
                 $act->secretaria?->nombre, $act->dependencia?->nombre, $act->creador?->nombre_completo,
                 $act->estado, $act->estado_aprobacion, $act->asistentes->count(),
-                $act->asistentes->count() ? "{$desde} a {$n}" : '—', $act->seguimiento ? 'Sí' : 'No',
+                $act->asistentes->count() ? "{$desde} a {$n}" : '—', $act->seguimientos->isNotEmpty() ? 'Sí' : 'No',
             ];
         }
 
@@ -553,9 +619,12 @@ class ActividadController extends Controller
         $this->estilizarBanner($sheet);
         $this->ajustarEncabezados($sheet);
 
-        $items = $asistentes->values()->map(fn ($a, $i) => [
-            'a' => $a, 'seg' => $a->seguimientoPropio ?? $a->actividad?->seguimiento, 'n' => $i + 1,
-        ])->all();
+        $items = [];
+        $n = 0;
+        $vistos = [];
+        foreach ($asistentes->values() as $a) {
+            array_push($items, ...$this->itemsDe($a, $a->actividad?->seguimientos ?? collect(), $n, $vistos));
+        }
         $archivosTemporales = [];
         $incluirFirmas = count($items) <= self::MAX_FILAS_CON_FIRMA;
         $siguiente = $this->volcarFilasExcel($sheet, $items, 8 + self::FILAS_ENCABEZADO, $archivosTemporales, true, $incluirFirmas);
@@ -647,8 +716,7 @@ class ActividadController extends Controller
     {
         $this->autorizarAcceso($actividad);
 
-        $actividad->load(['asistentes.problematicas', 'asistentes.enfoques', 'dependencia', 'secretaria', 'seguimiento']);
-        $seguimiento = $actividad->seguimiento;
+        $actividad->load(['asistentes.problematicas', 'asistentes.enfoques', 'asistentes.seguimientoPropio', 'dependencia', 'secretaria', 'seguimientos']);
 
         $templatePath = resource_path('templates/FO-PDD-19.xlsx');
         $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($templatePath);
@@ -684,9 +752,14 @@ class ActividadController extends Controller
         $sheet->setCellValue($this->c('AI4'), implode("\n", $lineasAI4));
 
         // ── Filas de datos (empiezan en la fila 8, igual que en el formato original) ──
-        $items = $actividad->asistentes->values()
-            ->map(fn ($a, $i) => ['a' => $a, 'seg' => $a->seguimientoPropio ?? $seguimiento, 'n' => $i + 1])->all();
+        $items = [];
+        $n = 0;
+        $vistos = [];
+        foreach ($actividad->asistentes->values() as $a) {
+            array_push($items, ...$this->itemsDe($a, $actividad->seguimientos, $n, $vistos));
+        }
         $archivosTemporales = [];
+        $this->agregarFirmaExpositor($sheet, $actividad, $archivosTemporales);
         $siguiente = $this->volcarFilasExcel($sheet, $items, 8 + self::FILAS_ENCABEZADO, $archivosTemporales);
         $this->ajustarImpresion($sheet, $siguiente);
 
@@ -709,6 +782,42 @@ class ActividadController extends Controller
             'Content-Disposition' => 'attachment; filename="'.$filename.'"',
             'Cache-Control' => 'no-cache, no-store, must-revalidate',
         ]);
+    }
+
+    /**
+     * Filas del Excel de una persona en una reunión: una por cada seguimiento que le aplica (su propio seguimiento si lo tiene; si no,
+     * el de cada contratista de la reunión). Regla del formato oficial: si la misma cédula ya salió con la MISMA meta (26.3), no se
+     * repite; si la meta es distinta, la persona sale de nuevo, porque cada contratista le entregó un bien o servicio diferente.
+     * El número de fila (n) avanza una vez por persona. Devuelve una lista de ['a','seg','n'] (vacía si todo era repetido).
+     *
+     * @param  \Illuminate\Support\Collection<int, CaracterizacionSeguimiento>  $seguimientos  los de la reunión
+     * @param  array<string, true>  $vistos  pares (documento|meta) ya escritos en este archivo
+     */
+    private function itemsDe(CaracterizacionAsistente $a, $seguimientos, int &$n, array &$vistos): array
+    {
+        $candidatos = $a->seguimientoPropio ? [$a->seguimientoPropio] : ($seguimientos->isNotEmpty() ? $seguimientos->all() : [null]);
+        $clave = $a->persona_clave ?: mb_strtoupper(trim($a->item2_tipo_documento)).'|'.trim($a->item3_numero_documento);
+
+        $filas = [];
+        foreach ($candidatos as $seg) {
+            $meta = $seg ? mb_strtolower(trim((string) $seg->item26_meta_producto)) : '';
+            if ($meta !== '') {
+                $par = $clave.'#'.$meta;
+                if (isset($vistos[$par])) {
+                    continue;
+                }
+                $vistos[$par] = true;
+            }
+            $filas[] = ['a' => $a, 'seg' => $seg, 'n' => 0];
+        }
+        if ($filas) {
+            $n++;
+            foreach ($filas as &$fila) {
+                $fila['n'] = $n;
+            }
+        }
+
+        return $filas;
     }
 
     /**
@@ -948,6 +1057,60 @@ class ActividadController extends Controller
      * combina de A a N y se reduce para caber; antes el texto largo se cortaba al llegar a
      * la celda «DEPARTAMENTO» y el municipio no se veía.
      */
+    /**
+     * Pone la firma de quien dirige/expone al final de la fila del banner (A3:J3), después del texto «FIRMA:». Si la actividad no
+     * tiene firma, el banner queda como estaba (con la línea para firmar a mano).
+     */
+    private function agregarFirmaExpositor($sheet, CaracterizacionActividad $actividad, array &$archivosTemporales): void
+    {
+        $uri = $actividad->firma_expositor_base64;
+        if (! $uri || ! str_contains($uri, ',')) {
+            return;
+        }
+        $bytes = base64_decode(explode(',', $uri, 2)[1], true);
+        if ($bytes === false || ! @getimagesizefromstring($bytes)) {
+            return;
+        }
+
+        $celda = $this->c('A3');
+        $fila = (int) preg_replace('/\D/', '', $celda);
+        $sheet->setCellValue($celda, str_replace('     FIRMA: ____________', '', (string) $sheet->getCell($celda)->getValue()).'     FIRMA:');
+
+        $tmp = tempnam(sys_get_temp_dir(), 'firma_exp_');
+        file_put_contents($tmp, $bytes);
+        $archivosTemporales[] = $tmp;
+
+        $columnas = range('A', 'J');
+        $anchos = array_map(fn ($c) => (($sheet->getColumnDimension($c)->getWidth() > 0 ? $sheet->getColumnDimension($c)->getWidth() : 8.43) * 7) + 5, $columnas);
+        $altoFila = $sheet->getRowDimension($fila)->getRowHeight();
+        $maxH = max(16, (int) (($altoFila > 0 ? $altoFila : 15) * 1.33) - 6);
+
+        $drawing = new \PhpOffice\PhpSpreadsheet\Worksheet\Drawing();
+        $drawing->setName('FirmaExpositor');
+        $drawing->setPath($tmp);
+        $escala = min(150 / max($drawing->getWidth(), 1), $maxH / max($drawing->getHeight(), 1), 1);
+        $w = (int) round($drawing->getWidth() * $escala);
+        $drawing->setResizeProportional(false);
+        $drawing->setWidth($w);
+        $drawing->setHeight((int) round($drawing->getHeight() * $escala));
+
+        // Borde izquierdo de la imagen = final del bloque A:J menos su ancho; se busca la columna donde cae.
+        $izquierda = max(0, array_sum($anchos) - $w - 8);
+        $acumulado = 0;
+        $col = 'A';
+        foreach ($columnas as $i => $c) {
+            if ($acumulado + $anchos[$i] > $izquierda) {
+                $col = $c;
+                break;
+            }
+            $acumulado += $anchos[$i];
+        }
+        $drawing->setCoordinates($col.$fila);
+        $drawing->setOffsetX((int) max(2, $izquierda - $acumulado));
+        $drawing->setOffsetY(3);
+        $drawing->setWorksheet($sheet);
+    }
+
     private function escribirBannerFila3($sheet, string $quienDirige, string $municipio, string $departamento): void
     {
         $sheet->mergeCells($this->c('A3:J3'));
@@ -1056,8 +1219,9 @@ class ActividadController extends Controller
             ->exists();
 
         $autorizado = $esColaboradorAceptado || ($perfil && $perfil->activo && (
-            $perfil->rol === CaracterizacionPerfil::ROL_ADMINISTRADOR
-            || ($perfil->rol === CaracterizacionPerfil::ROL_SECRETARIA && $perfil->secretaria_id === $actividad->secretaria_id)
+            $perfil->esGlobal()
+            || ($perfil->rol === CaracterizacionPerfil::ROL_SUPERVISOR && $perfil->secretaria_id === $actividad->secretaria_id)
+            || ($perfil->rol === CaracterizacionPerfil::ROL_REFERENTE && $perfil->dependencia_id && $perfil->dependencia_id === $actividad->dependencia_id)
             || ($perfil->rol === CaracterizacionPerfil::ROL_CONTRATISTA && Auth::id() === $actividad->creador_id)
         ));
 

@@ -122,8 +122,26 @@ Route::middleware(['auth:sanctum', 'contrato.vigente'])->group(function () {
         Route::post('/colaboraciones/{colaborador}/responder', [ActividadController::class, 'responderInvitacion']);
         Route::get('/mis-colaboraciones', [ActividadController::class, 'misColaboraciones']);
 
+        // Envío a revisión (contratista) y su bloque de contrato por reunión
+        Route::post('/actividades/enviar-borradores', [\App\Http\Controllers\Api\Caracterizacion\RevisionController::class, 'enviarBorradores']);
+        Route::post('/actividades/{actividad}/enviar-revision', [\App\Http\Controllers\Api\Caracterizacion\RevisionController::class, 'enviar']);
+        Route::put('/actividades/{actividad}/bloque', [ActividadController::class, 'asignarBloque']);
+        Route::get('/mi-contrato', [\App\Http\Controllers\Api\Caracterizacion\ContratistaController::class, 'miContrato']);
+
+        // ─── Revisores: referente, supervisor y administradores ───────
+        Route::middleware('caracterizacion.rol:super_admin,administrador,supervisor,referente')->group(function () {
+            Route::get('/revision/bandeja', [\App\Http\Controllers\Api\Caracterizacion\RevisionController::class, 'bandeja']);
+            Route::post('/revision/{actividad}/resolver', [\App\Http\Controllers\Api\Caracterizacion\RevisionController::class, 'resolver']);
+
+            // Módulo de contratistas (cada quien ve los de su alcance)
+            Route::get('/contratistas', [\App\Http\Controllers\Api\Caracterizacion\ContratistaController::class, 'index']);
+            Route::get('/contratistas/{id}', [\App\Http\Controllers\Api\Caracterizacion\ContratistaController::class, 'show']);
+            Route::put('/contratistas/{id}', [\App\Http\Controllers\Api\Caracterizacion\ContratistaController::class, 'actualizar']);
+            Route::put('/contratistas/{id}/contrato', [\App\Http\Controllers\Api\Caracterizacion\ContratistaController::class, 'guardarContrato']);
+        });
+
         // ─── Solo Administrador ─────────────────────────────────────────────
-        Route::middleware('caracterizacion.rol:administrador')->group(function () {
+        Route::middleware('caracterizacion.rol:super_admin,administrador')->group(function () {
             Route::get('/secretarias', [OrgController::class, 'secretarias']);
             Route::post('/secretarias', [OrgController::class, 'crearSecretaria']);
             Route::put('/secretarias/{secretaria}', [OrgController::class, 'actualizarSecretaria']);

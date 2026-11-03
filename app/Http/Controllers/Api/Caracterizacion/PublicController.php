@@ -13,6 +13,9 @@ use Illuminate\Validation\Rule;
 
 class PublicController extends Controller
 {
+    /** Versión vigente de la política de tratamiento de datos (la que se muestra en /privacidad). Si el texto cambia, se actualiza. */
+    public const POLITICA_VERSION = '2026-11-03';
+
     /**
      * Información pública de una actividad por su slug de acceso. Ruta pública,
      * igual que AsistenciaController::info para el sistema de Reuniones.
@@ -109,6 +112,10 @@ class PublicController extends Controller
             'fecha_nacimiento.date_format' => 'La fecha de nacimiento no es válida (use día, mes y año).',
             'fecha_nacimiento.before_or_equal' => 'La fecha de nacimiento no puede ser futura.',
             'fecha_nacimiento.after_or_equal' => 'La fecha de nacimiento no es válida: tendría más de 120 años.',
+            'acepta_politica.accepted' => 'Para registrarte debes aceptar la política de tratamiento de datos personales.',
+            'firma_electronica_acepta.required_if' => 'Marca la casilla para firmar electrónicamente.',
+            'firma_electronica_acepta.accepted_if' => 'Marca la casilla para firmar electrónicamente.',
+            'firma_base64.required_unless' => 'Por favor, proporciona tu firma.',
             'item16_tamano_grupo_familiar.regex' => 'El tamaño del grupo familiar debe ser un número de 1 a 99 (máximo 2 dígitos).',
         ];
 
@@ -135,13 +142,25 @@ class PublicController extends Controller
             'fecha_nacimiento' => ['required', 'date_format:Y-m-d', 'before_or_equal:today', 'after_or_equal:'.now()->subYears(120)->toDateString()],
             // Máximo 2 dígitos (1–99).
             'item16_tamano_grupo_familiar' => ['required', 'regex:/^[1-9]\d?$/'],
-            'firma_base64' => ['required', 'string', 'max:1000000', function ($atributo, $valor, $fallar) {
-                if (! app(\App\Services\FirmasCiudadano::class)->esValida($valor)) {
+            // Firma: dibujada en el lienzo (por defecto) o electrónica por consentimiento (alternativa accesible, sin dibujar).
+            'firma_modo' => 'nullable|in:dibujada,electronica',
+            'firma_electronica_acepta' => 'required_if:firma_modo,electronica|accepted_if:firma_modo,electronica',
+            'firma_base64' => ['required_unless:firma_modo,electronica', 'nullable', 'string', 'max:1000000', function ($atributo, $valor, $fallar) {
+                if ($valor !== null && ! app(\App\Services\FirmasCiudadano::class)->esValida($valor)) {
                     $fallar('La firma no es una imagen válida (JPEG o PNG, de tamaño razonable).');
                 }
             }],
-            'firma_hash' => 'required|string|size:64',
+            'firma_hash' => 'required_unless:firma_modo,electronica|nullable|string|size:64',
+            // Política de tratamiento de datos personales (Ley 1581 de 2012): sin aceptarla no hay registro.
+            'acepta_politica' => 'accepted',
         ], $mensajes);
+
+        if (($validated['firma_modo'] ?? 'dibujada') === 'electronica') {
+            $validated['firma_base64'] = app(\App\Services\FirmasCiudadano::class)->electronica(
+                $validated['item1_nombre'], $validated['item2_tipo_documento'], $validated['item3_numero_documento'], now()
+            );
+            $validated['firma_hash'] = hash('sha256', implode('|', [$validated['item2_tipo_documento'], $validated['item3_numero_documento'], $validated['item1_nombre'], now()->toIso8601String(), $request->ip()]));
+        }
 
         // Edad al día de la reunión (nunca negativa), calculada en el servidor.
         $validated['item15_edad'] = max(0, (int) floor(\Carbon\Carbon::parse($validated['fecha_nacimiento'])->diffInYears($actividad->fecha ?? now())));
@@ -201,6 +220,9 @@ class PublicController extends Controller
                 // La firma se guarda como archivo (no como texto dentro de la base de datos)
                 'firma_ciudadano_archivo' => app(\App\Services\FirmasCiudadano::class)->guardar($validated['firma_base64'], $actividad->id),
                 'firma_ciudadano_hash' => $validated['firma_hash'],
+                'firma_modo' => $validated['firma_modo'] ?? 'dibujada',
+                'consentimiento_version' => self::POLITICA_VERSION,
+                'consentimiento_en' => now(),
                 'ip_origen' => $request->ip(),
                 'user_agent' => substr((string) $request->userAgent(), 0, 255),
             ]);

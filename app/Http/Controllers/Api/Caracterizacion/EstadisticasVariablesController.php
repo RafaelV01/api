@@ -103,12 +103,13 @@ class EstadisticasVariablesController extends Controller
         $base = $this->consultaBase($request);
 
         // Participaciones = registros que cumplen los filtros (una persona puede tener varias, una por reunión).
-        $participaciones = (clone $base)->count('a.id');
+        $participaciones = (int) (clone $base)->selectRaw('COUNT(DISTINCT a.id) as n')->value('n');
         // Persona = documento (tipo + número). Para sus datos personales (zona, género, edad…) se usa su
         // participación MÁS RECIENTE dentro de los filtros, así cada persona cuenta una sola vez.
         $ids = (clone $base)->selectRaw('MAX(a.id) as id')->groupByRaw($clave)->pluck('id')->map(fn ($v) => (int) $v)->all();
         $total = count($ids);
-        $personas = fn () => $this->consultaBase($request)->whereIn('a.id', $ids ?: [0]);
+        // (sin los cruces con el seguimiento: con varios contratistas por reunión repetirían filas y inflarían los conteos)
+        $personas = fn () => DB::table('caracterizacion_asistentes as a')->whereIn('a.id', $ids ?: [0]);
 
         $conSeguimiento = (int) (clone $base)->whereRaw('(sa.id IS NOT NULL OR sg.id IS NOT NULL)')
             ->selectRaw("COUNT(DISTINCT {$clave}) as n")->value('n');
@@ -238,7 +239,7 @@ class EstadisticasVariablesController extends Controller
         $recortado = count($ids) > $tope;
         $ids = array_slice($ids, 0, $tope);
 
-        $asistentes = \App\Models\CaracterizacionAsistente::with(['problematicas', 'enfoques', 'seguimientoPropio', 'actividad.seguimiento'])
+        $asistentes = \App\Models\CaracterizacionAsistente::with(['problematicas', 'enfoques', 'seguimientoPropio', 'actividad.seguimientos'])
             ->whereIn('id', $ids ?: [0])->get()
             ->sortBy(fn ($a) => array_search($a->id, $ids))->values();
 
