@@ -16,12 +16,12 @@ class CaracterizacionPersona extends Model
     protected $table = 'caracterizacion_personas';
 
     protected $fillable = [
-        'persona_clave', 'tipo_documento', 'numero_documento', 'nombre', 'municipio', 'zona', 'ubicacion_tipo', 'ubicacion_detalle',
+        'persona_clave', 'tipo_documento', 'numero_documento', 'nombre', 'fecha_nacimiento', 'municipio', 'zona', 'ubicacion_tipo', 'ubicacion_detalle',
         'contacto', 'genero', 'etnico', 'sector_organizacion', 'clasificacion_organizacion', 'edad', 'tamano_grupo_familiar',
         'cargo_barrio_vereda', 'participaciones', 'ultima_participacion_en',
     ];
 
-    protected $casts = ['ultima_participacion_en' => 'datetime'];
+    protected $casts = ['ultima_participacion_en' => 'datetime', 'fecha_nacimiento' => 'date'];
 
     /** Misma regla que la columna `persona_clave` de caracterizacion_asistentes: TIPO en mayúsculas + '|' + número, sin espacios sobrantes. */
     public static function clave(?string $tipo, ?string $numero): string

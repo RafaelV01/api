@@ -216,7 +216,7 @@ class ActividadController extends Controller
             'item28_pilares_paz' => ['nullable', 'string', $opcion('pilares_paz')],
             'item29_politica_publica' => ['nullable', 'string', $opcion('politica_publica')],
             'item30_politica_mipg' => ['nullable', 'string', $opcion('politica_mipg')],
-            'item31_total_beneficiarios' => 'nullable|integer|min:0',
+            // item31 (total de beneficiarios) ya no se digita: es el número de asistentes de la reunión (se calcula al exportar).
             'item32_acto_tipo' => ['nullable', 'string', $opcion('acto_tipo')],
             'item32_numero' => ['nullable', 'string', 'max:50', 'regex:/^[\p{L}\p{N}][\p{L}\p{N} .\-\/]*$/u'],
             'item32_fecha' => 'nullable|date',
@@ -719,6 +719,7 @@ class ActividadController extends Controller
      * @param  array<int, array{a: CaracterizacionAsistente, seg: ?CaracterizacionSeguimiento, n: int}>  $items
      * @return int  la siguiente fila libre
      */
+
     private function volcarFilasExcel($sheet, array $items, int $fila, array &$archivosTemporales, bool $copiarEstilo = false, bool $incluirFirmas = true): int
     {
         // AG (Canal de Comunicación) y AH (Idiomas) se dejan sin escribir: esos ítems
@@ -726,6 +727,10 @@ class ActividadController extends Controller
         // esas columnas físicas para no alterar su estructura.
         $colsParte1 = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AD', 'AE', 'AF', 'AI'];
         $colsParte2 = ['AJ', 'AK', 'AL', 'AM', 'AN', 'AO', 'AP', 'AQ', 'AR', 'AS', 'AT', 'AU', 'AV', 'AW', 'AX', 'AY', 'AZ', 'BA', 'BB', 'BC'];
+
+        // Total de beneficiarios (ítem 31): número de asistentes de cada reunión (una consulta por exportación).
+        $totalesBeneficiarios = CaracterizacionAsistente::whereIn('actividad_id', collect($items)->map(fn ($i) => $i['a']->actividad_id)->unique()->all())
+            ->groupBy('actividad_id')->selectRaw('actividad_id, COUNT(*) as n')->pluck('n', 'actividad_id');
 
         $primera = $fila;
         foreach ($items as ['a' => $a, 'seg' => $seguimiento, 'n' => $numero]) {
@@ -844,7 +849,7 @@ class ActividadController extends Controller
                 $seguimiento?->item28_pilares_paz,
                 $seguimiento?->item29_politica_publica,
                 $seguimiento?->item30_politica_mipg,
-                $seguimiento?->item31_total_beneficiarios,
+                (int) ($totalesBeneficiarios[$a->actividad_id] ?? 0),
                 $seguimiento?->item32_acto_tipo,
                 $seguimiento?->item32_numero,
                 optional($seguimiento?->item32_fecha)->format('d/m/Y'),

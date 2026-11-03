@@ -25,7 +25,7 @@ class FirmasArchivoTest extends TestCase
         return [
             'item1_nombre' => 'Prueba Firma', 'item2_tipo_documento' => 'C.C', 'item3_numero_documento' => $documento, 'item4_cargo_barrio_vereda' => 'Presidente',
             'item5_municipio' => 'YOPAL', 'item6_zona' => 'urbana', 'item7_ubicacion_tipo' => 'Barrio', 'item8_contacto_valor' => '3001234567',
-            'item9_genero' => 'Mujer', 'item15_edad' => 30, 'item16_tamano_grupo_familiar' => 3, 'firma_base64' => $firma, 'firma_hash' => hash('sha256', 'f'),
+            'item9_genero' => 'Mujer', 'fecha_nacimiento' => '1995-05-10', 'item16_tamano_grupo_familiar' => 3, 'firma_base64' => $firma, 'firma_hash' => hash('sha256', 'f'),
         ];
     }
 

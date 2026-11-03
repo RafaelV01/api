@@ -24,7 +24,7 @@ class PersonasYRegistroTest extends TestCase
             'item1_nombre' => 'Prueba Persona Unica', 'item2_tipo_documento' => 'C.C', 'item3_numero_documento' => $documento,
             'item4_cargo_barrio_vereda' => 'Presidente', 'item5_municipio' => 'YOPAL', 'item6_zona' => 'urbana',
             'item7_ubicacion_tipo' => 'Barrio', 'item7_ubicacion_detalle' => 'Centro', 'item8_contacto_valor' => '3001234567',
-            'item9_genero' => 'Mujer', 'item15_edad' => 30, 'item16_tamano_grupo_familiar' => 3,
+            'item9_genero' => 'Mujer', 'fecha_nacimiento' => '1995-05-10', 'item16_tamano_grupo_familiar' => 3,
             'firma_base64' => $this->firmaDePrueba(), 'firma_hash' => hash('sha256', 'f'),
         ];
     }
@@ -47,13 +47,16 @@ class PersonasYRegistroTest extends TestCase
         $a2 = $this->crearActividad($creador, $sec, $dep);
 
         $this->postJson("/api/caracterizacion/registrar/{$a1->slug_acceso}", $this->cuerpo('900100201'))->assertCreated();
-        $this->postJson("/api/caracterizacion/registrar/{$a2->slug_acceso}", $this->cuerpo('900100201', ['item5_municipio' => 'AGUAZUL', 'item15_edad' => 31]))->assertCreated();
+        // 31 años y 10 días de edad (la reunión fue hace 3 días): la edad se calcula de la fecha de nacimiento
+        $nacimiento = now()->subYears(31)->subDays(10)->toDateString();
+        $this->postJson("/api/caracterizacion/registrar/{$a2->slug_acceso}", $this->cuerpo('900100201', ['item5_municipio' => 'AGUAZUL', 'fecha_nacimiento' => $nacimiento]))->assertCreated();
 
         $fichas = CaracterizacionPersona::where('numero_documento', '900100201')->get();
         $this->assertCount(1, $fichas);
         $this->assertSame(2, $fichas[0]->participaciones);
         $this->assertSame('AGUAZUL', $fichas[0]->municipio);
         $this->assertSame(31, $fichas[0]->edad);
+        $this->assertSame($nacimiento, $fichas[0]->fecha_nacimiento->toDateString());
         // Cada reunión conserva lo que se declaró ese día
         $this->assertSame('YOPAL', $a1->asistentes()->first()->item5_municipio);
     }

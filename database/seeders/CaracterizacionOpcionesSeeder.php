@@ -89,7 +89,7 @@ class CaracterizacionOpcionesSeeder extends Seeder
             CaracterizacionOpcion::where('categoria', 'sector_organizacion')->where('valor', $viejo)->update(['activo' => false]);
         }
 
-        $this->sembrar('genero', ['Mujer', 'Hombre', 'No Binario', 'Transgénero', 'LGBTIQ+ OSIGD']);
+        $this->sembrar('genero', ['Mujer', 'Hombre', 'No Binario', 'Transgénero', 'LGBTIQ+ OSIGD', 'Prefiero no decirlo']);
 
         $this->sembrar('etnico', ['Indígenas', 'Comun. Negras - Afro- Raizales - Palenqueras', 'Pueblo Rom o Gitano']);
 

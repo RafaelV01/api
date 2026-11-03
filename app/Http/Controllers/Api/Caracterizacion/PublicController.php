@@ -105,6 +105,11 @@ class PublicController extends Controller
             'item7_ubicacion_detalle.regex' => 'La dirección contiene caracteres no permitidos.',
             'item8_contacto_valor.regex' => 'El contacto debe ser un número de celular de 10 dígitos que empiece por 3 (solo números).',
             'item8_contacto_valor.required' => 'El número de celular es obligatorio.',
+            'fecha_nacimiento.required' => 'La fecha de nacimiento es obligatoria.',
+            'fecha_nacimiento.date_format' => 'La fecha de nacimiento no es válida (use día, mes y año).',
+            'fecha_nacimiento.before_or_equal' => 'La fecha de nacimiento no puede ser futura.',
+            'fecha_nacimiento.after_or_equal' => 'La fecha de nacimiento no es válida: tendría más de 120 años.',
+            'item16_tamano_grupo_familiar.regex' => 'El tamaño del grupo familiar debe ser un número de 1 a 99 (máximo 2 dígitos).',
         ];
 
         $validated = $request->validate([
@@ -126,8 +131,10 @@ class PublicController extends Controller
             'item13_clasificacion_organizacion' => ['nullable', 'string', $opcion('clasificacion_organizacion')],
             'item14_enfoques' => 'nullable|array',
             'item14_enfoques.*' => ['string', $opcion('enfoque_diferencial')],
-            'item15_edad' => 'required|integer|min:0|max:120',
-            'item16_tamano_grupo_familiar' => 'required|integer|min:1|max:20',
+            // La edad ya no se pide: se calcula de la fecha de nacimiento (que debe ser real: no futura y de hace máximo 120 años).
+            'fecha_nacimiento' => ['required', 'date_format:Y-m-d', 'before_or_equal:today', 'after_or_equal:'.now()->subYears(120)->toDateString()],
+            // Máximo 2 dígitos (1–99).
+            'item16_tamano_grupo_familiar' => ['required', 'regex:/^[1-9]\d?$/'],
             'firma_base64' => ['required', 'string', 'max:1000000', function ($atributo, $valor, $fallar) {
                 if (! app(\App\Services\FirmasCiudadano::class)->esValida($valor)) {
                     $fallar('La firma no es una imagen válida (JPEG o PNG, de tamaño razonable).');
@@ -135,6 +142,9 @@ class PublicController extends Controller
             }],
             'firma_hash' => 'required|string|size:64',
         ], $mensajes);
+
+        // Edad al día de la reunión (nunca negativa), calculada en el servidor.
+        $validated['item15_edad'] = max(0, (int) floor(\Carbon\Carbon::parse($validated['fecha_nacimiento'])->diffInYears($actividad->fecha ?? now())));
 
         $claveCiudadano = \App\Models\CaracterizacionPersona::clave($validated['item2_tipo_documento'], $validated['item3_numero_documento']);
         if ($actividad->asistentes()->where('persona_clave', $claveCiudadano)->exists()) {
@@ -160,6 +170,7 @@ class PublicController extends Controller
                 'etnico' => $validated['item10_etnico'] ?? null,
                 'sector_organizacion' => $validated['item12_sector_organizacion'] ?? null,
                 'clasificacion_organizacion' => $validated['item13_clasificacion_organizacion'] ?? null,
+                'fecha_nacimiento' => $validated['fecha_nacimiento'],
                 'edad' => $validated['item15_edad'],
                 'tamano_grupo_familiar' => $validated['item16_tamano_grupo_familiar'],
                 'cargo_barrio_vereda' => $validated['item4_cargo_barrio_vereda'],
@@ -184,6 +195,7 @@ class PublicController extends Controller
                 'item10_etnico' => $validated['item10_etnico'] ?? null,
                 'item12_sector_organizacion' => $validated['item12_sector_organizacion'] ?? null,
                 'item13_clasificacion_organizacion' => $validated['item13_clasificacion_organizacion'] ?? null,
+                'fecha_nacimiento' => $validated['fecha_nacimiento'],
                 'item15_edad' => $validated['item15_edad'],
                 'item16_tamano_grupo_familiar' => $validated['item16_tamano_grupo_familiar'],
                 // La firma se guarda como archivo (no como texto dentro de la base de datos)

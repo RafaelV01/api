@@ -20,7 +20,7 @@ class CaracterizacionAsistente extends Model
         'item7_ubicacion_tipo', 'item7_ubicacion_detalle', 'item8_contacto_tipo',
         'item8_contacto_valor', 'item9_genero', 'item10_etnico',
         'item12_sector_organizacion', 'item13_clasificacion_organizacion',
-        'item15_edad', 'item16_tamano_grupo_familiar', 'item17_canal_comunicacion',
+        'fecha_nacimiento', 'item15_edad', 'item16_tamano_grupo_familiar', 'item17_canal_comunicacion',
         'item18_idioma_lengua_dialecto', 'firma_ciudadano_base64', 'firma_ciudadano_hash', 'firma_ciudadano_archivo',
         'ip_origen', 'user_agent',
         // Parte 2 (ítems 20–32) ya NO vive aquí — ver CaracterizacionSeguimiento: ahora

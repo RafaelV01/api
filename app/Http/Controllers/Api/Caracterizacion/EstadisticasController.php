@@ -119,6 +119,7 @@ class EstadisticasController extends Controller
             ->selectRaw("SUM(item9_genero = 'No Binario') as genero_no_binario")
             ->selectRaw("SUM(item9_genero = 'Transgénero') as genero_transgenero")
             ->selectRaw("SUM(item9_genero = 'LGBTIQ+ OSIGD') as genero_lgbtiq")
+            ->selectRaw("SUM(item9_genero = 'Prefiero no decirlo') as genero_prefiere_no_decirlo")
             ->selectRaw("SUM(item10_etnico = 'Indígenas') as etnico_indigenas")
             ->selectRaw("SUM(item10_etnico = 'Comun. Negras - Afro- Raizales - Palenqueras') as etnico_negras_afro")
             ->selectRaw("SUM(item10_etnico = 'Pueblo Rom o Gitano') as etnico_rom")
@@ -163,6 +164,7 @@ class EstadisticasController extends Controller
                     'no_binario' => (int) $fila->genero_no_binario,
                     'transgenero' => (int) $fila->genero_transgenero,
                     'lgbtiq_osigd' => (int) $fila->genero_lgbtiq,
+                    'prefiere_no_decirlo' => (int) $fila->genero_prefiere_no_decirlo,
                 ],
                 'etnico' => [
                     'indigenas' => (int) $fila->etnico_indigenas,
@@ -287,7 +289,7 @@ class EstadisticasController extends Controller
 
     private const ETIQUETAS = [
         'zona' => ['urbana' => 'Urbana', 'rural' => 'Rural'],
-        'genero' => ['mujer' => 'Mujer', 'hombre' => 'Hombre', 'no_binario' => 'No Binario', 'transgenero' => 'Transgénero', 'lgbtiq_osigd' => 'LGBTIQ+ OSIGD'],
+        'genero' => ['mujer' => 'Mujer', 'hombre' => 'Hombre', 'no_binario' => 'No Binario', 'transgenero' => 'Transgénero', 'lgbtiq_osigd' => 'LGBTIQ+ OSIGD', 'prefiere_no_decirlo' => 'Prefiere no decirlo'],
         'etnico' => ['indigenas' => 'Indígenas', 'negras_afro_raizales_palenqueras' => 'Negras/Afro/Raizales/Palenqueras', 'pueblo_rom' => 'Pueblo Rom'],
         'sector_organizacion' => ['con_animo_lucro' => 'Con Ánimo de Lucro', 'sin_animo_lucro' => 'Sin Ánimo de Lucro'],
         'enfoque_diferencial' => ['discapacidad' => 'Discapacidad', 'cabeza_de_hogar' => 'Cabeza de Hogar', 'victimas_de_conflicto' => 'Víctimas de Conflicto', 'habitante_de_la_calle' => 'Habitante de la calle'],
