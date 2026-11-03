@@ -47,6 +47,11 @@ class AuthController extends Controller
             throw ValidationException::withMessages(['email' => ['Las credenciales proporcionadas son incorrectas.']]);
         }
 
+        // Contratista con el contrato terminado (o sin iniciar): no entra a la plataforma.
+        if ($motivo = \App\Models\CaracterizacionContrato::motivoSinAcceso($user)) {
+            return response()->json(['message' => $motivo, 'codigo' => 'contrato_no_vigente'], 403);
+        }
+
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json(['message' => 'Login exitoso', 'access_token' => $token, 'token_type' => 'Bearer', 'user' => $user]);

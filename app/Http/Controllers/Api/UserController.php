@@ -184,6 +184,13 @@ class UserController extends Controller
             'caracterizacion_rol' => ['nullable', Rule::in(CaracterizacionPerfil::ROLES)],
             'caracterizacion_secretaria_id' => 'nullable|integer|exists:caracterizacion_secretarias,id',
             'caracterizacion_dependencia_id' => 'nullable|integer|exists:caracterizacion_dependencias,id|required_if:caracterizacion_rol,'.CaracterizacionPerfil::ROL_CONTRATISTA,
+            // Contrato del contratista (al terminar, se deshabilita su acceso). Los tres datos van juntos.
+            'contrato_numero' => ['nullable', 'string', 'max:60', 'regex:/^[\p{L}\p{N}][\p{L}\p{N} .\-\/]*$/u', 'required_with:contrato_inicio,contrato_fin'],
+            'contrato_inicio' => 'nullable|date_format:Y-m-d|required_with:contrato_numero,contrato_fin',
+            'contrato_fin' => 'nullable|date_format:Y-m-d|after_or_equal:contrato_inicio|required_with:contrato_numero,contrato_inicio',
+        ], [
+            'contrato_fin.after_or_equal' => 'La fecha final del contrato no puede ser anterior a la de inicio.',
+            'contrato_numero.regex' => 'El número de contrato solo puede tener letras, números, espacios y . - /',
         ]);
 
         if (!$validated['caracterizacion_rol']) {
@@ -203,6 +210,13 @@ class UserController extends Controller
                 'activo' => true,
             ]
         );
+
+        // El contrato vigente (el de fecha final más reciente) se actualiza; si no hay ninguno, se crea.
+        if ($validated['caracterizacion_rol'] === CaracterizacionPerfil::ROL_CONTRATISTA && !empty($validated['contrato_numero'])) {
+            $datos = ['numero_contrato' => $validated['contrato_numero'], 'fecha_inicio' => $validated['contrato_inicio'], 'fecha_fin' => $validated['contrato_fin'], 'activo' => true];
+            $actual = \App\Models\CaracterizacionContrato::where('usuario_id', $user->id)->orderByDesc('fecha_fin')->first();
+            $actual ? $actual->update($datos) : \App\Models\CaracterizacionContrato::create(['usuario_id' => $user->id] + $datos);
+        }
     }
 
     // ─── Usuario: cambiar su propia contraseña ────────────────────────────────
@@ -298,6 +312,11 @@ class UserController extends Controller
             'caracterizacion_rol'            => $user->caracterizacionPerfil?->rol,
             'caracterizacion_secretaria_id'  => $user->caracterizacionPerfil?->secretaria_id,
             'caracterizacion_dependencia_id' => $user->caracterizacionPerfil?->dependencia_id,
+            'contrato' => (function () use ($user) {
+                $c = \App\Models\CaracterizacionContrato::where('usuario_id', $user->id)->orderByDesc('fecha_fin')->first();
+
+                return $c ? ['numero' => $c->numero_contrato, 'inicio' => $c->fecha_inicio->toDateString(), 'fin' => $c->fecha_fin->toDateString(), 'estado' => $c->estado()] : null;
+            })(),
         ];
     }
 }

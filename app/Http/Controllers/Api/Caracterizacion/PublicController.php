@@ -221,4 +221,55 @@ class PublicController extends Controller
             'asistente_id' => $asistente->id,
         ], 201);
     }
+
+    /**
+     * Autocompletado: si la persona ya se registró antes, devuelve sus datos para precargar el formulario. Para no filtrar datos
+     * personales a quien solo conozca una cédula, exige además la fecha de nacimiento; si no coincide (o no existe) la respuesta
+     * es exactamente la misma, y tras varios intentos fallidos con un mismo documento se bloquea un rato. Nunca devuelve la firma.
+     */
+    public function buscarPersona(Request $request, string $slug)
+    {
+        CaracterizacionActividad::where('slug_acceso', $slug)->where('estado', '!=', 'cerrada')->firstOrFail();
+
+        $datos = $request->validate([
+            'item2_tipo_documento' => ['required', 'string', Rule::exists('caracterizacion_opciones', 'valor')->where('categoria', 'tipo_documento')->where('activo', true)],
+            'item3_numero_documento' => ['required', 'string', 'max:30', 'regex:/^[A-Za-z0-9-]{4,20}$/'],
+            'fecha_nacimiento' => ['required', 'date_format:Y-m-d'],
+        ]);
+
+        $clave = \App\Models\CaracterizacionPersona::clave($datos['item2_tipo_documento'], $datos['item3_numero_documento']);
+        $limite = 'buscar-persona:'.sha1($clave);
+        if (\Illuminate\Support\Facades\RateLimiter::tooManyAttempts($limite, 5)) {
+            return response()->json(['message' => 'Demasiados intentos con este documento. Intenta de nuevo en unos minutos o llena el formulario completo.'], 429);
+        }
+
+        $persona = \App\Models\CaracterizacionPersona::where('persona_clave', $clave)->first();
+        if (! $persona || ! $persona->fecha_nacimiento || $persona->fecha_nacimiento->toDateString() !== $datos['fecha_nacimiento']) {
+            \Illuminate\Support\Facades\RateLimiter::hit($limite, 900);
+
+            return response()->json(['message' => 'No encontramos un registro con esos datos. Puedes llenar el formulario completo.'], 404);
+        }
+        \Illuminate\Support\Facades\RateLimiter::clear($limite);
+
+        // Lo que marcó la última vez que participó (varias opciones): problemáticas y enfoques.
+        $ultima = CaracterizacionAsistente::where('persona_id', $persona->id)->latest('id')->with(['problematicas', 'enfoques'])->first();
+
+        return response()->json([
+            'item1_nombre' => $persona->nombre,
+            'fecha_nacimiento' => $persona->fecha_nacimiento->toDateString(),
+            'item4_cargo_barrio_vereda' => $persona->cargo_barrio_vereda,
+            'item5_municipio' => $persona->municipio,
+            'item6_zona' => $persona->zona,
+            'item7_ubicacion_tipo' => $persona->ubicacion_tipo,
+            'item7_ubicacion_detalle' => $persona->ubicacion_detalle,
+            'item8_contacto_valor' => $persona->contacto,
+            'item9_genero' => $persona->genero,
+            'item10_etnico' => $persona->etnico,
+            'item12_sector_organizacion' => $persona->sector_organizacion,
+            'item13_clasificacion_organizacion' => $persona->clasificacion_organizacion,
+            'item16_tamano_grupo_familiar' => $persona->tamano_grupo_familiar,
+            'item11_problematicas' => $ultima?->problematicas->pluck('valor')->all() ?? [],
+            'item14_enfoques' => $ultima?->enfoques->pluck('valor')->all() ?? [],
+        ]);
+    }
 }

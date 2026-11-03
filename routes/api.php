@@ -42,8 +42,11 @@ Route::middleware('throttle:30,1')->group(function () {
 });
 
 
+// Autocompletado por documento + fecha de nacimiento: límite estricto por IP (además del bloqueo por documento)
+Route::middleware('throttle:12,1')->post('/caracterizacion/buscar-persona/{slug}', [CaracterizacionPublicController::class, 'buscarPersona']);
+
 // ─── Rutas Protegidas (requieren token) ───────────────────────────────────────
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'contrato.vigente'])->group(function () {
 
     // Autenticación
     Route::post('/logout', [AuthController::class, 'logout']);

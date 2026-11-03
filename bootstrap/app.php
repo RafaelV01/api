@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'es.admin' => \App\Http\Middleware\EsAdministrador::class,
             'caracterizacion.rol' => \App\Http\Middleware\CaracterizacionRol::class,
+            'contrato.vigente' => \App\Http\Middleware\ContratoVigente::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
