@@ -304,13 +304,64 @@ class FlujoContratosYRevisionTest extends TestCase
         $this->assertSame(1, $total());
     }
 
+    // ── Bloqueo de edición mientras se revisa ──
+
+    public function test_el_contratista_no_edita_su_reunion_mientras_esta_en_revision_ni_aprobada_pero_si_devuelta(): void
+    {
+        $o = $this->organizacion();
+        $a = $this->crearActividad($o['contratista'], $o['sec'], $o['dep1'], ['estado_aprobacion' => 'borrador']);
+        $url = "/api/caracterizacion/actividades/{$a->id}/parte2";
+        $cuerpo = ['item22_descripcion_beneficio' => 'Apoyo'];
+
+        Sanctum::actingAs($o['contratista']);
+        $this->putJson($url, $cuerpo)->assertOk(); // borrador
+        foreach (['pendiente', 'revision_supervisor', 'aprobada'] as $estado) {
+            $a->update(['estado_aprobacion' => $estado]);
+            $this->putJson($url, $cuerpo)->assertStatus(423);
+            $this->putJson("/api/caracterizacion/actividades/{$a->id}/seguimiento-lote", ['asistentes' => [1], 'quitar' => true])->assertStatus(423);
+        }
+        $a->update(['estado_aprobacion' => 'rechazada']);
+        $this->putJson($url, $cuerpo)->assertOk(); // devuelta: puede corregir
+
+        // Un revisor sí puede ajustar mientras la revisa
+        $a->update(['estado_aprobacion' => 'pendiente']);
+        Sanctum::actingAs($o['ref1']);
+        $this->putJson($url, $cuerpo)->assertOk();
+    }
+
+    public function test_el_filtro_de_estado_acepta_varios_valores_y_el_resumen_del_admin_cuenta_las_dos_etapas(): void
+    {
+        $o = $this->organizacion();
+        $creador = $o['contratista'];
+        $this->crearActividad($creador, $o['sec'], $o['dep1'], ['estado_aprobacion' => 'pendiente']);
+        $this->crearActividad($creador, $o['sec'], $o['dep1'], ['estado_aprobacion' => 'revision_supervisor']);
+        $this->crearActividad($creador, $o['sec'], $o['dep1'], ['estado_aprobacion' => 'borrador']);
+
+        Sanctum::actingAs($this->crearUsuario('administrador', $o['sec'], null, true));
+        $lista = $this->getJson("/api/caracterizacion/actividades?secretaria_id={$o['sec']->id}&estado_aprobacion=pendiente,revision_supervisor")->assertOk()->json();
+        $this->assertCount(2, $lista);
+
+        $resumen = $this->getJson('/api/caracterizacion/aprobaciones/resumen')->assertOk();
+        $this->assertSame(2, (int) collect($resumen->json('por_secretaria'))->firstWhere('id', $o['sec']->id)['pendientes']);
+    }
+
+    public function test_mi_contrato_informa_cuantos_dias_le_quedan(): void
+    {
+        $o = $this->organizacion();
+        $c = CaracterizacionContrato::create(['usuario_id' => $o['contratista']->id, 'numero_contrato' => 'CPS-1', 'fecha_inicio' => now()->subMonth()->toDateString(), 'fecha_fin' => now()->addDays(9)->toDateString(), 'activo' => true]);
+        CaracterizacionContratoBloque::create(['contrato_id' => $c->id, 'orden' => 1] + $this->bloque());
+
+        Sanctum::actingAs($o['contratista']);
+        $this->getJson('/api/caracterizacion/mi-contrato')->assertOk()->assertJsonPath('contrato.dias_restantes', 9)->assertJsonPath('contrato.estado', 'vigente');
+    }
+
     // ── Varios contratistas en una reunión ──
 
     private function reunionConDosContratistas(string $metaCreador, string $metaColaborador): array
     {
         $o = $this->organizacion();
         $colab = $this->crearUsuario('contratista', $o['sec'], $o['dep1']);
-        $a = $this->crearActividad($o['contratista'], $o['sec'], $o['dep1']);
+        $a = $this->crearActividad($o['contratista'], $o['sec'], $o['dep1'], ['estado_aprobacion' => 'borrador']);
         CaracterizacionColaborador::create(['actividad_id' => $a->id, 'usuario_id' => $colab->id, 'invitado_por' => $o['contratista']->id, 'estado' => CaracterizacionColaborador::ESTADO_ACEPTADO, 'created_at' => now()]);
         CaracterizacionSeguimiento::create(['actividad_id' => $a->id, 'usuario_id' => $o['contratista']->id, 'item26_meta_producto' => $metaCreador, 'item21_bien_servicio' => 'Servicio 1']);
         CaracterizacionSeguimiento::create(['actividad_id' => $a->id, 'usuario_id' => $colab->id, 'item26_meta_producto' => $metaColaborador, 'item21_bien_servicio' => 'Servicio 2']);

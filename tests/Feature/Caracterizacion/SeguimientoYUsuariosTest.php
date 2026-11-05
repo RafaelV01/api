@@ -16,7 +16,7 @@ class SeguimientoYUsuariosTest extends TestCase
     {
         [$sec, $dep] = $this->crearSecretariaYDependencia();
         $creador = $this->crearUsuario('contratista', $sec, $dep);
-        $actividad = $this->crearActividad($creador, $sec, $dep);
+        $actividad = $this->crearActividad($creador, $sec, $dep, ['estado_aprobacion' => 'borrador']);
         $yopal = $this->agregarParticipante($actividad, '700100001', ['item5_municipio' => 'YOPAL']);
         $orocue = $this->agregarParticipante($actividad, '700100002', ['item5_municipio' => 'OROCUE']);
         Sanctum::actingAs($creador);
@@ -36,8 +36,8 @@ class SeguimientoYUsuariosTest extends TestCase
     {
         [$sec, $dep] = $this->crearSecretariaYDependencia();
         $creador = $this->crearUsuario('contratista', $sec, $dep);
-        $propia = $this->crearActividad($creador, $sec, $dep);
-        $ajena = $this->crearActividad($creador, $sec, $dep);
+        $propia = $this->crearActividad($creador, $sec, $dep, ['estado_aprobacion' => 'borrador']);
+        $ajena = $this->crearActividad($creador, $sec, $dep, ['estado_aprobacion' => 'borrador']);
         $mio = $this->agregarParticipante($propia, '700100003');
         $otro = $this->agregarParticipante($ajena, '700100004');
         Sanctum::actingAs($creador);
@@ -48,7 +48,7 @@ class SeguimientoYUsuariosTest extends TestCase
     public function test_otro_contratista_no_puede_editar_el_seguimiento_de_una_actividad_ajena(): void
     {
         [$sec, $dep] = $this->crearSecretariaYDependencia();
-        $actividad = $this->crearActividad($this->crearUsuario('contratista', $sec, $dep), $sec, $dep);
+        $actividad = $this->crearActividad($this->crearUsuario('contratista', $sec, $dep), $sec, $dep, ['estado_aprobacion' => 'borrador']);
         $p = $this->agregarParticipante($actividad, '700100005');
         Sanctum::actingAs($this->crearUsuario('contratista', $sec, $dep));
 

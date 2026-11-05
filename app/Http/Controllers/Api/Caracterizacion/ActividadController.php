@@ -78,7 +78,7 @@ class ActividadController extends Controller
             $query->where('creador_id', $request->integer('creador_id'));
         }
         if ($request->filled('estado_aprobacion')) {
-            $query->where('estado_aprobacion', $request->string('estado_aprobacion'));
+            $query->whereIn('estado_aprobacion', array_filter(explode(',', (string) $request->input('estado_aprobacion'))));
         }
         if ($request->filled('estado')) {
             $query->where('estado', $request->string('estado'));
@@ -171,7 +171,7 @@ class ActividadController extends Controller
      */
     public function asignarBloque(Request $request, CaracterizacionActividad $actividad)
     {
-        $this->autorizarAcceso($actividad);
+        $this->autorizarEdicion($actividad);
         abort_unless($this->esParticipante($actividad), 403, 'Solo quien participa en la reunión puede asignar su actividad de contrato.');
 
         $validated = $request->validate(['contrato_bloque_id' => 'required|integer']);
@@ -219,7 +219,7 @@ class ActividadController extends Controller
      */
     public function completarParte2(Request $request, CaracterizacionActividad $actividad)
     {
-        $this->autorizarAcceso($actividad);
+        $this->autorizarEdicion($actividad);
 
         $validated = $request->validate($this->reglasParte2());
         // El código DANE sale del municipio de la actividad, no de lo que escriba el usuario.
@@ -294,7 +294,7 @@ class ActividadController extends Controller
     public function completarParte2Asistente(Request $request, CaracterizacionAsistente $asistente)
     {
         $actividad = $asistente->actividad;
-        $this->autorizarAcceso($actividad);
+        $this->autorizarEdicion($actividad);
 
         $validated = $request->validate($this->reglasParte2());
         // El código sale del municipio de ESTE ciudadano (cada uno puede vivir en un municipio distinto).
@@ -314,7 +314,7 @@ class ActividadController extends Controller
      */
     public function seguimientoLote(Request $request, CaracterizacionActividad $actividad)
     {
-        $this->autorizarAcceso($actividad);
+        $this->autorizarEdicion($actividad);
 
         $ids = collect($request->validate([
             'asistentes' => 'required|array|min:1|max:500',
@@ -348,7 +348,7 @@ class ActividadController extends Controller
     /** Quita el seguimiento propio del ciudadano: vuelve a valer el general de la actividad. */
     public function quitarParte2Asistente(CaracterizacionAsistente $asistente)
     {
-        $this->autorizarAcceso($asistente->actividad);
+        $this->autorizarEdicion($asistente->actividad);
 
         // delete() sobre la instancia para que Auditable registre quién y qué se quitó.
         CaracterizacionSeguimientoAsistente::where('asistente_id', $asistente->id)->get()->each->delete();
@@ -1209,6 +1209,21 @@ class ActividadController extends Controller
      * su perfil de caracterización (mismo criterio que scopeVisiblePara), o porque
      * es un colaborador invitado por el creador y que ya aceptó la invitación.
      */
+    /**
+     * Acceso para MODIFICAR el seguimiento de una reunión. Mientras está en revisión (o ya aprobada) el contratista no puede tocarla,
+     * para que lo que revisan sea lo que queda; si la devuelven (o sigue en borrador) puede editarla. Los revisores y administradores sí.
+     */
+    private function autorizarEdicion(CaracterizacionActividad $actividad): void
+    {
+        $this->autorizarAcceso($actividad);
+
+        $perfil = Auth::user()->caracterizacionPerfil;
+        $esRevisorOAdmin = $perfil && $perfil->activo && $perfil->rol !== CaracterizacionPerfil::ROL_CONTRATISTA;
+        $bloqueada = in_array($actividad->estado_aprobacion, [CaracterizacionActividad::PENDIENTE, CaracterizacionActividad::REVISION_SUPERVISOR, CaracterizacionActividad::APROBADA], true);
+
+        abort_if($bloqueada && ! $esRevisorOAdmin, 423, 'Esta reunión está en revisión o ya fue aprobada, por eso no se puede modificar. Si la devuelven, podrás corregirla.');
+    }
+
     private function autorizarAcceso(CaracterizacionActividad $actividad): void
     {
         $perfil = Auth::user()->caracterizacionPerfil;

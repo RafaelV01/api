@@ -166,7 +166,7 @@ class ContratistaController extends Controller
         $contrato = CaracterizacionContrato::actualDe(Auth::id());
 
         return response()->json([
-            'contrato' => $contrato ? ['numero' => $contrato->numero_contrato, 'inicio' => $contrato->fecha_inicio->toDateString(), 'fin' => $contrato->fecha_fin->toDateString(), 'estado' => $contrato->estado()] : null,
+            'contrato' => $contrato ? ['numero' => $contrato->numero_contrato, 'inicio' => $contrato->fecha_inicio->toDateString(), 'fin' => $contrato->fecha_fin->toDateString(), 'estado' => $contrato->estado(), 'dias_restantes' => (int) now()->startOfDay()->diffInDays($contrato->fecha_fin->startOfDay(), false)] : null,
             'bloques' => $contrato ? $contrato->bloques->map(fn ($b) => ['id' => $b->id, 'orden' => $b->orden, 'nombre' => $b->nombre, 'programa' => $b->item26_programa, 'meta' => $b->item26_meta_producto, 'bien_servicio' => $b->item21_bien_servicio, 'proyecto' => $b->item27_nombre_proyecto])->values() : [],
         ]);
     }

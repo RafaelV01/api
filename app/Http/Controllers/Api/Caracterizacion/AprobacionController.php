@@ -108,7 +108,7 @@ class AprobacionController extends Controller
     {
         $pendientesPorSecretaria = CaracterizacionActividad::query()
             ->select('secretaria_id', DB::raw('count(*) as pendientes'))
-            ->where('estado_aprobacion', 'pendiente')
+            ->whereIn('estado_aprobacion', ['pendiente', 'revision_supervisor'])
             ->groupBy('secretaria_id')
             ->with('secretaria:id,nombre')
             ->get()
@@ -116,7 +116,7 @@ class AprobacionController extends Controller
 
         $pendientesPorDependencia = CaracterizacionActividad::query()
             ->select('dependencia_id', DB::raw('count(*) as pendientes'))
-            ->where('estado_aprobacion', 'pendiente')
+            ->whereIn('estado_aprobacion', ['pendiente', 'revision_supervisor'])
             ->groupBy('dependencia_id')
             ->with('dependencia:id,nombre,secretaria_id')
             ->get()
@@ -124,7 +124,7 @@ class AprobacionController extends Controller
 
         $pendientesPorUsuario = CaracterizacionActividad::query()
             ->select('creador_id', DB::raw('count(*) as pendientes'))
-            ->where('estado_aprobacion', 'pendiente')
+            ->whereIn('estado_aprobacion', ['pendiente', 'revision_supervisor'])
             ->groupBy('creador_id')
             ->with('creador:id,nombre_completo')
             ->get()

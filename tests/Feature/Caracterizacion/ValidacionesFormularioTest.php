@@ -106,6 +106,7 @@ class ValidacionesFormularioTest extends TestCase
     public function test_el_total_de_beneficiarios_ya_no_se_puede_escribir_a_mano(): void
     {
         [$a, $sec, $dep] = $this->actividad();
+        $a->update(['estado_aprobacion' => 'borrador']);
         Sanctum::actingAs(\App\Models\User::find($a->creador_id));
 
         $this->putJson("/api/caracterizacion/actividades/{$a->id}/parte2", ['item31_total_beneficiarios' => 500, 'item22_descripcion_beneficio' => 'Apoyo'])->assertOk();
