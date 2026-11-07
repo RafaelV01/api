@@ -66,6 +66,33 @@ class EstadisticasTest extends TestCase
         $this->assertSame(0, $this->getJson($base.'&genero[]=Hombre&zona[]=rural')->json('total_personas'));
     }
 
+    public function test_al_filtrar_una_variable_el_desglose_solo_muestra_las_opciones_elegidas(): void
+    {
+        [$sec, $dep] = $this->crearSecretariaYDependencia();
+        $actividad = $this->crearActividad($this->crearUsuario('contratista', $sec, $dep), $sec, $dep);
+        $a = $this->agregarParticipante($actividad, '910000001');
+        $b = $this->agregarParticipante($actividad, '910000002');
+        // La primera persona marcó salud y ambiental; la segunda solo cultural
+        foreach (['Salud', 'Ambiental'] as $p) {
+            \App\Models\CaracterizacionAsistenteProblematica::create(['asistente_id' => $a->id, 'valor' => $p]);
+        }
+        \App\Models\CaracterizacionAsistenteProblematica::create(['asistente_id' => $b->id, 'valor' => 'Cultural']);
+        Sanctum::actingAs($this->crearUsuario('administrador', $sec, $dep, true));
+
+        $r = $this->getJson("/api/caracterizacion/estadisticas/por-variables?secretaria_id={$sec->id}&problematica[]=Salud")->assertOk();
+        $this->assertSame(1, $r->json('total_personas'));
+        $valores = collect($r->json('desglose.problematica'))->pluck('valor')->all();
+        $this->assertSame(['Salud'], $valores); // «Ambiental» la tiene esa persona, pero no se pidió
+
+        // Sin filtro aparecen todas
+        $todas = collect($this->getJson("/api/caracterizacion/estadisticas/por-variables?secretaria_id={$sec->id}")->json('desglose.problematica'))->pluck('valor')->sort()->values()->all();
+        $this->assertSame(['Ambiental', 'Cultural', 'Salud'], $todas);
+
+        // Con dos opciones elegidas (o), solo esas dos
+        $dos = collect($this->getJson("/api/caracterizacion/estadisticas/por-variables?secretaria_id={$sec->id}&problematica[]=Salud&problematica[]=Cultural")->json('desglose.problematica'))->pluck('valor')->sort()->values()->all();
+        $this->assertSame(['Cultural', 'Salud'], $dos);
+    }
+
     public function test_un_valor_hostil_no_rompe_la_consulta(): void
     {
         $this->escenario();

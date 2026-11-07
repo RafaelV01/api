@@ -329,6 +329,27 @@ class FlujoContratosYRevisionTest extends TestCase
         $this->putJson($url, $cuerpo)->assertOk();
     }
 
+    public function test_con_contrato_cargado_el_contratista_no_diligencia_el_seguimiento_dentro_de_la_reunion(): void
+    {
+        $o = $this->organizacion();
+        $this->contratoConBloques($o['contratista'], [$this->bloque()]);
+        $a = $this->crearActividad($o['contratista'], $o['sec'], $o['dep1'], ['estado_aprobacion' => 'borrador']);
+        $asistente = $this->agregarParticipante($a, '920000001');
+
+        Sanctum::actingAs($o['contratista']);
+        $this->putJson("/api/caracterizacion/actividades/{$a->id}/parte2", ['item22_descripcion_beneficio' => 'x'])->assertForbidden();
+        $this->putJson("/api/caracterizacion/asistentes/{$asistente->id}/seguimiento", ['item22_descripcion_beneficio' => 'x'])->assertForbidden();
+        $this->putJson("/api/caracterizacion/actividades/{$a->id}/seguimiento-lote", ['asistentes' => [$asistente->id], 'quitar' => true])->assertForbidden();
+
+        // Sí puede elegir cuál actividad de su contrato aplica (se copia sola)
+        $bloque = CaracterizacionContrato::actualDe($o['contratista']->id)->bloques()->first();
+        $this->putJson("/api/caracterizacion/actividades/{$a->id}/bloque", ['contrato_bloque_id' => $bloque->id])->assertOk();
+
+        // El referente (quien administra el contrato) sí puede ajustar el seguimiento de la reunión
+        Sanctum::actingAs($o['ref1']);
+        $this->putJson("/api/caracterizacion/actividades/{$a->id}/parte2", ['item22_descripcion_beneficio' => 'Ajustado por el referente'])->assertOk();
+    }
+
     public function test_el_filtro_de_estado_acepta_varios_valores_y_el_resumen_del_admin_cuenta_las_dos_etapas(): void
     {
         $o = $this->organizacion();

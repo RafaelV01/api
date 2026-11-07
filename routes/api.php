@@ -23,7 +23,7 @@ use App\Http\Controllers\Api\LogController;
 
 // ─── Rutas Públicas ───────────────────────────────────────────────────────────
 // Máximo 5 intentos por minuto por IP para prevenir brute force
-Route::middleware('throttle:5,1')->group(function () {
+Route::middleware('throttle:login')->group(function () {
     Route::post('/login', [AuthController::class, 'login'])->name('login');
     Route::post('/register', [AuthController::class, 'register']);
 });
@@ -35,7 +35,7 @@ Route::middleware('throttle:30,1')->group(function () {
 });
 
 // ─── Caracterización de Ciudadanía (FO-PDD-19) — Parte 1, pública (el ciudadano se autoregistra) ──
-Route::middleware('throttle:30,1')->group(function () {
+Route::middleware('throttle:publico')->group(function () {
     Route::get('/caracterizacion/info/{slug}', [CaracterizacionPublicController::class, 'info']);
     Route::post('/caracterizacion/registrar/{slug}', [CaracterizacionPublicController::class, 'registrarCiudadano']);
     Route::get('/caracterizacion/opciones', [OpcionController::class, 'index']);

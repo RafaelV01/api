@@ -101,6 +101,9 @@ class EstadisticasVariablesController extends Controller
     {
         $clave = $this->clavePersona();
         $base = $this->consultaBase($request);
+        // Opciones elegidas por variable: el desglose de una variable filtrada muestra SOLO esas opciones (una persona puede tener otras
+        // —ej. salud y ambiental— pero si se filtró «salud», las demás no deben aparecer como si hubieran sido pedidas).
+        $filtros = $this->filtrosRecibidos($request);
 
         // Participaciones = registros que cumplen los filtros (una persona puede tener varias, una por reunión).
         $participaciones = (int) (clone $base)->selectRaw('COUNT(DISTINCT a.id) as n')->value('n');
@@ -125,12 +128,16 @@ class EstadisticasVariablesController extends Controller
 
         foreach (self::VARIABLES_PIVOTE as $k => [$tabla]) {
             $desglose[$k] = $personas()->join("{$tabla} as p", 'p.asistente_id', '=', 'a.id')
+                ->when(isset($filtros[$k]), fn ($q) => $q->whereIn('p.valor', $filtros[$k]))
                 ->select('p.valor')->selectRaw('COUNT(*) as total')->groupBy('p.valor')->orderByDesc('total')->get()
                 ->map(fn ($f) => ['valor' => $f->valor, 'total' => (int) $f->total])->all();
         }
 
         $desglose['grupo_etareo'] = [];
         foreach (self::GRUPOS_ETAREOS as $nombre => [$min, $max]) {
+            if (isset($filtros['grupo_etareo']) && ! in_array($nombre, $filtros['grupo_etareo'], true)) {
+                continue;
+            }
             $n = $personas()->whereBetween('a.item15_edad', [max($min, 1), $max])->count('a.id');
             if ($n > 0) {
                 $desglose['grupo_etareo'][] = ['valor' => $nombre, 'total' => $n];
@@ -143,6 +150,7 @@ class EstadisticasVariablesController extends Controller
         foreach (self::VARIABLES_PARTE2 as $k => [$columna]) {
             $expr = $this->expresionParte2($columna);
             $desglose[$k] = (clone $base)->whereRaw("{$expr} IS NOT NULL AND {$expr} != ''")
+                ->when(isset($filtros[$k]), fn ($q) => $q->whereIn(DB::raw($expr), $filtros[$k]))
                 ->selectRaw("{$expr} as valor")->selectRaw("COUNT(DISTINCT {$clave}) as total")
                 ->groupByRaw($expr)->orderByDesc('total')->limit(50)->get()
                 ->map(fn ($f) => ['valor' => $f->valor, 'total' => (int) $f->total])->all();

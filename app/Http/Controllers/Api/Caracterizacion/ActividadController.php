@@ -220,6 +220,7 @@ class ActividadController extends Controller
     public function completarParte2(Request $request, CaracterizacionActividad $actividad)
     {
         $this->autorizarEdicion($actividad);
+        $this->abortSiSeguimientoViveEnElContrato();
 
         $validated = $request->validate($this->reglasParte2());
         // El código DANE sale del municipio de la actividad, no de lo que escriba el usuario.
@@ -295,6 +296,7 @@ class ActividadController extends Controller
     {
         $actividad = $asistente->actividad;
         $this->autorizarEdicion($actividad);
+        $this->abortSiSeguimientoViveEnElContrato();
 
         $validated = $request->validate($this->reglasParte2());
         // El código sale del municipio de ESTE ciudadano (cada uno puede vivir en un municipio distinto).
@@ -315,6 +317,7 @@ class ActividadController extends Controller
     public function seguimientoLote(Request $request, CaracterizacionActividad $actividad)
     {
         $this->autorizarEdicion($actividad);
+        $this->abortSiSeguimientoViveEnElContrato();
 
         $ids = collect($request->validate([
             'asistentes' => 'required|array|min:1|max:500',
@@ -349,6 +352,7 @@ class ActividadController extends Controller
     public function quitarParte2Asistente(CaracterizacionAsistente $asistente)
     {
         $this->autorizarEdicion($asistente->actividad);
+        $this->abortSiSeguimientoViveEnElContrato();
 
         // delete() sobre la instancia para que Auditable registre quién y qué se quitó.
         CaracterizacionSeguimientoAsistente::where('asistente_id', $asistente->id)->get()->each->delete();
@@ -1222,6 +1226,24 @@ class ActividadController extends Controller
         $bloqueada = in_array($actividad->estado_aprobacion, [CaracterizacionActividad::PENDIENTE, CaracterizacionActividad::REVISION_SUPERVISOR, CaracterizacionActividad::APROBADA], true);
 
         abort_if($bloqueada && ! $esRevisorOAdmin, 423, 'Esta reunión está en revisión o ya fue aprobada, por eso no se puede modificar. Si la devuelven, podrás corregirla.');
+    }
+
+    /**
+     * Un contratista que ya tiene su contrato cargado con actividades NO diligencia el seguimiento dentro de la reunión: sale del contrato y
+     * solo lo cambia su referente o supervisor (en «Contratistas»). Quien aún no tiene contrato cargado conserva el formulario de siempre,
+     * y los revisores/administradores siempre pueden ajustar.
+     */
+    private function abortSiSeguimientoViveEnElContrato(): void
+    {
+        $perfil = Auth::user()->caracterizacionPerfil;
+        if ($perfil && $perfil->activo && $perfil->rol !== CaracterizacionPerfil::ROL_CONTRATISTA) {
+            return;
+        }
+        abort_if(
+            \App\Models\CaracterizacionContratoBloque::delContratoActual(Auth::id())->isNotEmpty(),
+            403,
+            'El seguimiento de tus reuniones sale de tu contrato. Si algo debe cambiar, pídeselo a tu referente o supervisor.'
+        );
     }
 
     private function autorizarAcceso(CaracterizacionActividad $actividad): void
