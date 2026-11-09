@@ -142,6 +142,14 @@ Route::middleware(['auth:sanctum', 'contrato.vigente'])->group(function () {
 
         // ─── Solo Administrador ─────────────────────────────────────────────
         Route::middleware('caracterizacion.rol:super_admin,administrador')->group(function () {
+            // Archivos Excel subidos y sus estadísticas aparte (no se mezclan con las reuniones del sistema)
+            Route::get('/excel/cargas', [\App\Http\Controllers\Api\Caracterizacion\CargaExcelController::class, 'index']);
+            Route::post('/excel/cargas', [\App\Http\Controllers\Api\Caracterizacion\CargaExcelController::class, 'store']);
+            Route::delete('/excel/cargas/{carga}', [\App\Http\Controllers\Api\Caracterizacion\CargaExcelController::class, 'destroy']);
+            Route::get('/excel/estadisticas/variables', [\App\Http\Controllers\Api\Caracterizacion\ExcelEstadisticasController::class, 'variables']);
+            Route::get('/excel/estadisticas/por-variables', [\App\Http\Controllers\Api\Caracterizacion\ExcelEstadisticasController::class, 'porVariables']);
+            Route::get('/excel/estadisticas/por-variables/exportar', [\App\Http\Controllers\Api\Caracterizacion\ExcelEstadisticasController::class, 'exportar']);
+
             Route::get('/secretarias', [OrgController::class, 'secretarias']);
             Route::post('/secretarias', [OrgController::class, 'crearSecretaria']);
             Route::put('/secretarias/{secretaria}', [OrgController::class, 'actualizarSecretaria']);
